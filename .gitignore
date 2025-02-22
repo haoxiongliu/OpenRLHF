@@ -150,3 +150,6 @@ core
 *test_scripts*
 */checkpoint/*
 play.sh
+scripts/*
+scripts
+checkpoints
