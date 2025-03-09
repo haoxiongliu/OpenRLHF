@@ -1,0 +1,148 @@
+import os
+import re
+import json
+import torch
+import logging
+import argparse
+import datetime
+from pathlib import Path
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
+from typing import List, Optional, Union
+import uvicorn
+from contextlib import asynccontextmanager
+
+from prover.lean.verifier import Lean4ServerScheduler
+
+# Setup logging
+logs_dir = Path("logs")
+logs_dir.mkdir(exist_ok=True)
+log_file = logs_dir / f"lean_reward_server_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
+logger = logging.getLogger("lean_reward_server")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup code
+    logger.info("Server starting up")
+    yield
+    # Shutdown code
+    if hasattr(config, 'scheduler'):
+        config.scheduler.close()
+        logger.info("Lean4ServerScheduler closed")
+
+app = FastAPI(lifespan=lifespan)
+
+class RewardRequest(BaseModel):
+    queries: List[str]
+    prompts: List[str]
+    labels: Optional[List[str]] = None
+
+class RewardConfig:
+    def __init__(self, 
+                 lake_path: str = None,
+                 lean_workspace: str = None,
+                 timeout: int = 300,
+                 max_concurrent_requests: int = 16,
+                 debug: bool = False):
+        self.lake_path = lake_path or os.path.expanduser('~/.elan/bin/lake')
+        self.lean_workspace = lean_workspace or 'mathlib4/'
+        self.timeout = timeout
+        self.max_concurrent_requests = max_concurrent_requests
+        self.debug = debug
+        
+        # Initialize Lean4ServerScheduler
+        logger.info(f"Initializing Lean4ServerScheduler with {max_concurrent_requests} concurrent requests")
+        self.scheduler = Lean4ServerScheduler(
+            max_concurrent_requests=self.max_concurrent_requests, 
+            timeout=self.timeout, 
+            name='reward_verifier'
+        )
+
+config = RewardConfig()
+
+def extract_code(text):
+    try:
+        return re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL).group(1)
+    except:
+        return text
+
+def calculate_reward(verification_result):
+    """Calculate reward based on verification result - 1 if complete, 0 otherwise"""
+    reward = 1.0 if verification_result["complete"] else 0.0
+    if config.debug:
+        status = "complete" if verification_result["complete"] else "incomplete"
+        if verification_result["errors"]:
+            status += f" with {len(verification_result['errors'])} errors"
+        if verification_result["sorries"]:
+            status += f" and {len(verification_result['sorries'])} sorries"
+        logger.debug(f"Verification result: {status}, reward: {reward}")
+    return reward
+
+@app.post("/reward")
+async def get_reward(request: RewardRequest):
+    """
+    Calculate rewards for Lean code
+    
+    Args:
+        queries: Generated code list (may contain markdown format)
+        prompts: Original prompt list
+        labels: Optional label list
+    
+    Returns:
+        List[float]: Reward values (1.0 for complete proofs, 0.0 otherwise)
+    """
+    logger.info(f"Received reward request with {len(request.queries)} queries")
+    
+    # Submit verification requests in batch using Lean4ServerScheduler
+    codes = [extract_code(query) for query in request.queries]
+    request_id_list = config.scheduler.submit_all_request(codes)
+    verification_results = config.scheduler.get_all_request_outputs(request_id_list)
+    
+    # Calculate reward for each code
+    rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
+    
+    if config.debug:
+        for i, code in enumerate(codes):
+            logger.debug(f"Query {i} code (first 100 chars): {code[:100]}...")
+    
+    # Return reward list, OpenRLHF's RemoteExperienceMaker will convert it to tensor
+    return rewards
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Lean verification reward model API server")
+    parser.add_argument("--host", default="0.0.0.0", help="Server hostname")
+    parser.add_argument("--port", type=int, default=8000, help="Server port")
+    parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
+    parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
+    parser.add_argument("--timeout", type=int, default=300, help="Verification timeout (seconds)")
+    parser.add_argument("--max_concurrent", type=int, default=16, help="Maximum concurrent verification requests")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
+    
+    args = parser.parse_args()
+    
+    # Configure logging based on debug mode
+    log_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=log_level,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler()
+        ]
+    )
+    
+    logger.info(f"Starting server with config: {vars(args)}")
+    
+    # Update configuration
+    config = RewardConfig(
+        lake_path=args.lake_path,
+        lean_workspace=args.lean_workspace,
+        timeout=args.timeout,
+        max_concurrent_requests=args.max_concurrent,
+        debug=args.debug
+    )
+    
+    # Start server
+    logger.info(f"Starting server on {args.host}:{args.port}")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info") 
