@@ -150,6 +150,7 @@ core
 *test_scripts*
 */checkpoint/*
 play.sh
+play.ipynb
 scripts/*
 scripts
 checkpoints

@@ -21,3 +21,6 @@ transformers==4.48.3
 transformers_stream_generator
 wandb
 wheel
+
+# prover
+easydict
