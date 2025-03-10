@@ -67,7 +67,8 @@ def extract_code(text: str) -> Optional[str]:
         code = m.group(1)   
     elif m:= re.search(r'```\S*\n(.*)', text, re.DOTALL):
         code = m.group(1)   # no ``` case
-    assert code is not None, f"No code found in prompt: {text}"
+    else:
+        code = "[[No code found.]]"
     return code
 
 @app.post("/reward")
