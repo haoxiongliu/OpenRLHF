@@ -97,9 +97,11 @@ async def get_reward(request: RewardRequest):
         log_dict = {
             "query": request.queries[i],
             "reward": rewards[i],
-            "code": codes[i],
+            # "code": codes[i],
             # "errors": verification_results[i].get("errors", []),
         }    
+        if config.debug:
+            log_dict["errors"] = verification_results[i].get("errors", [])
         logger.debug(f"\n{log_dict}")
     
     # Return in format expected by OpenRLHF
