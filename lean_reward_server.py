@@ -92,15 +92,15 @@ async def get_reward(request: RewardRequest):
     verification_results = config.scheduler.get_all_request_outputs(request_id_list)
     rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
     
-    if config.debug:
-        for i in range(len(request.queries)):
-            log_dict = {
-                "query": request.queries[i],
-                "reward": rewards[i],
-                "code": codes[i],
-                # "errors": verification_results[i].get("errors", []),
-            }    
-            logger.debug(f"\n{log_dict}")
+    # if config.debug:
+    for i in range(len(request.queries)):
+        log_dict = {
+            "query": request.queries[i],
+            "reward": rewards[i],
+            "code": codes[i],
+            # "errors": verification_results[i].get("errors", []),
+        }    
+        logger.debug(f"\n{log_dict}")
     
     # Return in format expected by OpenRLHF
     return {"rewards": rewards}
@@ -119,13 +119,14 @@ if __name__ == "__main__":
     
     # Configure logging based on debug mode
     log_level = logging.DEBUG if args.debug else logging.INFO
+    # only add filehandler if debug is True
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler()
-        ]
+        ] if args.debug else [logging.StreamHandler()]
     )
     
     logger.info(f"Starting server with config: {vars(args)}")
