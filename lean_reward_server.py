@@ -34,8 +34,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 class RewardRequest(BaseModel):
-    queries: Optional[List[str]] = None  # in fact prompt query
-    prompts: List[str]  # in fact whole generated text, = query+response
+    queries: List[str]  # in fact prompt+response
+    prompts: Optional[List[str]] = None  # in fact prompt only
     labels: Optional[List[str]] = None
 
 class RewardConfig:
@@ -77,27 +77,28 @@ async def get_reward(request: RewardRequest):
     Calculate rewards for Lean code
     
     Args:
-        queries: Query list (optional)
-        prompts: Generated text including code
+        queries: Required query list (prompt+response)
+        prompts: Optional prompt list
         labels: Optional label list
     
     Returns:
         Dict with "rewards" key containing the reward values
     """
-    logger.info(f"Received reward request with {len(request.prompts)} prompts")
+    logger.info(f"Received reward request with {len(request.queries)} queries")
     
     # Extract and verify code
-    codes = [extract_code(prompt) for prompt in request.prompts]
+    codes = [extract_code(query) for query in request.queries]
     request_id_list = config.scheduler.submit_all_request(codes)
     verification_results = config.scheduler.get_all_request_outputs(request_id_list)
     rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
     
     if config.debug:
-        for i in range(len(request.prompts)):
+        for i in range(len(request.queries)):
             log_dict = {
-                "prompt": request.prompts[i],
+                "query": request.queries[i],
                 "reward": rewards[i],
-                "errors": verification_results[i].get("errors", ""),
+                "code": codes[i],
+                # "errors": verification_results[i].get("errors", []),
             }    
             logger.debug(f"\n{log_dict}")
     

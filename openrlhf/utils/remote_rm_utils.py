@@ -36,7 +36,7 @@ def remote_rm_fn(api_url, queries, prompts, labels, score_key="rewards"):
     design is made optional.
     score_key: RM score key
     """
-    scores = request_api_wrapper(api_url, {"query": queries, "prompts": prompts, "labels": labels}, score_key)
+    scores = request_api_wrapper(api_url, {"queries": queries, "prompts": prompts, "labels": labels}, score_key)
     return torch.tensor(scores)
 
 
