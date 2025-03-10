@@ -34,8 +34,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 class RewardRequest(BaseModel):
-    queries: List[str]
-    prompts: List[str]
+    queries: Optional[List[str]] = None  # in fact prompt query
+    prompts: List[str]  # in fact whole generated text, = query+response
     labels: Optional[List[str]] = None
 
 class RewardConfig:
@@ -61,23 +61,14 @@ class RewardConfig:
 
 config = RewardConfig()
 
-def extract_code(text):
-    try:
-        return re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL).group(1)
-    except:
-        return text
-
-def calculate_reward(verification_result):
-    """Calculate reward based on verification result - 1 if complete, 0 otherwise"""
-    reward = 1.0 if verification_result["complete"] else 0.0
-    if config.debug:
-        status = "complete" if verification_result["complete"] else "incomplete"
-        if verification_result["errors"]:
-            status += f" with {len(verification_result['errors'])} errors"
-        if verification_result["sorries"]:
-            status += f" and {len(verification_result['sorries'])} sorries"
-        logger.debug(f"Verification result: {status}, reward: {reward}")
-    return reward
+def extract_code(text: str) -> Optional[str]:
+    code = None
+    if m:= re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL):
+        code = m.group(1)   
+    elif m:= re.search(r'```\S*\n(.*)', text, re.DOTALL):
+        code = m.group(1)   # no ``` case
+    assert code is not None, f"No code found in prompt: {text}"
+    return code
 
 @app.post("/reward")
 async def get_reward(request: RewardRequest):
@@ -85,34 +76,37 @@ async def get_reward(request: RewardRequest):
     Calculate rewards for Lean code
     
     Args:
-        queries: Generated code list (may contain markdown format)
-        prompts: Original prompt list
+        queries: Query list (optional)
+        prompts: Generated text including code
         labels: Optional label list
     
     Returns:
-        List[float]: Reward values (1.0 for complete proofs, 0.0 otherwise)
+        Dict with "rewards" key containing the reward values
     """
-    logger.info(f"Received reward request with {len(request.queries)} queries")
+    logger.info(f"Received reward request with {len(request.prompts)} prompts")
     
-    # Submit verification requests in batch using Lean4ServerScheduler
-    codes = [extract_code(query) for query in request.queries]
+    # Extract and verify code
+    codes = [extract_code(prompt) for prompt in request.prompts]
     request_id_list = config.scheduler.submit_all_request(codes)
     verification_results = config.scheduler.get_all_request_outputs(request_id_list)
-    
-    # Calculate reward for each code
     rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
     
     if config.debug:
-        for i, code in enumerate(codes):
-            logger.debug(f"Query {i} code (first 100 chars): {code[:100]}...")
+        for i in range(len(request.prompts)):
+            log_dict = {
+                "prompt": request.prompts[i],
+                "reward": rewards[i],
+                "errors": verification_results[i].get("errors", ""),
+            }    
+            logger.debug(f"\n{log_dict}")
     
-    # Return reward list, OpenRLHF's RemoteExperienceMaker will convert it to tensor
-    return rewards
+    # Return in format expected by OpenRLHF
+    return {"rewards": rewards}
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Lean verification reward model API server")
     parser.add_argument("--host", default="0.0.0.0", help="Server hostname")
-    parser.add_argument("--port", type=int, default=8000, help="Server port")
+    parser.add_argument("--port", type=int, default=5000, help="Server port")
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
     parser.add_argument("--timeout", type=int, default=300, help="Verification timeout (seconds)")
