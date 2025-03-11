@@ -5,6 +5,7 @@ import torch
 import logging
 import argparse
 import datetime
+import uuid  # 添加uuid库用于生成唯一ID
 from pathlib import Path
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
@@ -84,25 +85,28 @@ async def get_reward(request: RewardRequest):
     Returns:
         Dict with "rewards" key containing the reward values
     """
-    logger.info(f"Received reward request with {len(request.queries)} queries")
+    # 生成请求ID
+    request_id = str(uuid.uuid4())[:8]
+    
+    logger.info(f"[REQ-{request_id}] Received reward request with {len(request.queries)} queries")
     
     # Extract and verify code
     codes = [extract_code(query) for query in request.queries]
-    request_id_list = config.scheduler.submit_all_request(codes)
-    verification_results = config.scheduler.get_all_request_outputs(request_id_list)
+    verification_request_ids = config.scheduler.submit_all_request(codes)
+    verification_results = config.scheduler.get_all_request_outputs(verification_request_ids)
     rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
     
-    # if config.debug:
-    for i in range(len(request.queries)):
-        log_dict = {
-            "query": request.queries[i],
-            "reward": rewards[i],
-            # "code": codes[i],
-            # "errors": verification_results[i].get("errors", []),
-        }    
-        if config.debug:
-            log_dict["errors"] = verification_results[i].get("errors", [])
-        logger.debug(f"\n{log_dict}")
+    if config.debug:
+        for i in range(len(request.queries)):
+            debug_dict = {
+                "query": request.queries[i],
+                "reward": rewards[i],
+                "errors": verification_results[i].get("errors", []),
+                "code": codes[i],
+            }
+            logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
+    average_reward = sum(rewards) / len(rewards)
+    logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
     
     # Return in format expected by OpenRLHF
     return {"rewards": rewards}
@@ -113,7 +117,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5000, help="Server port")
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
-    parser.add_argument("--timeout", type=int, default=300, help="Verification timeout (seconds)")
+    parser.add_argument("--timeout", type=int, default=150, help="Verification timeout (seconds)")
     parser.add_argument("--max_concurrent", type=int, default=16, help="Maximum concurrent verification requests")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     
