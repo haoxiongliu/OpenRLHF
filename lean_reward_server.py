@@ -5,11 +5,12 @@ import torch
 import logging
 import argparse
 import datetime
-import uuid  # 添加uuid库用于生成唯一ID
+import uuid
+import asyncio
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from pydantic import BaseModel
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Dict
 import uvicorn
 from contextlib import asynccontextmanager
 
@@ -85,7 +86,7 @@ async def get_reward(request: RewardRequest):
     Returns:
         Dict with "rewards" key containing the reward values
     """
-    # 生成请求ID
+    # Generate request ID
     request_id = str(uuid.uuid4())[:8]
     
     logger.info(f"[REQ-{request_id}] Received reward request with {len(request.queries)} queries")
@@ -93,7 +94,9 @@ async def get_reward(request: RewardRequest):
     # Extract and verify code
     codes = [extract_code(query) for query in request.queries]
     verification_request_ids = config.scheduler.submit_all_request(codes)
-    verification_results = config.scheduler.get_all_request_outputs(verification_request_ids)
+    
+    # Asynchronous parallel wait for all verification results
+    verification_results = await config.scheduler.async_get_all_request_outputs(verification_request_ids)
     rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
     
     if config.debug:
@@ -105,6 +108,7 @@ async def get_reward(request: RewardRequest):
                 "code": codes[i],
             }
             logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
+    
     average_reward = sum(rewards) / len(rewards)
     logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
     

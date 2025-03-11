@@ -6,6 +6,7 @@ import ctypes
 import subprocess
 import threading
 import multiprocessing as mp
+import asyncio
 
 import numpy as np
 
@@ -93,16 +94,33 @@ class ProcessScheduler(object):
             return response
     
     def get_request_outputs(self, request_id):
+        """Synchronous version of get_request_outputs, blocks until result is returned"""
         while True:
             outputs = self.get_request_status(request_id)
             if outputs is not None:
                 return outputs
-            time.sleep(1.0)
+            time.sleep(0.1)  # use time.sleep for blocking wait
     
     def get_all_request_outputs(self, request_id_list):
+        """Synchronous version of get_all_request_outputs, blocks until all results are returned"""
         outputs_list = []
         for request_id in request_id_list:
             outputs_list.append(self.get_request_outputs(request_id))
+        return outputs_list
+    
+    async def async_get_request_outputs(self, request_id):
+        """Asynchronous version of get_request_outputs, does not block the event loop"""
+        while True:
+            outputs = self.get_request_status(request_id)
+            if outputs is not None:
+                return outputs
+            await asyncio.sleep(0.1)  # use asyncio.sleep instead of time.sleep
+    
+    async def async_get_all_request_outputs(self, request_id_list):
+        """Asynchronous parallel get all request outputs"""
+        # parallel wait for all request results
+        tasks = [self.async_get_request_outputs(request_id) for request_id in request_id_list]
+        outputs_list = await asyncio.gather(*tasks)
         return outputs_list
     
     def close(self):
