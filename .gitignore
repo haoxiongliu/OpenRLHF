@@ -155,3 +155,5 @@ scripts/*
 scripts
 checkpoints
 checkpoint
+logs/*
+logs
