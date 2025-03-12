@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Union, Dict
 import uvicorn
 from contextlib import asynccontextmanager
+import random
 
 from prover.lean.verifier import Lean4ServerScheduler
 
@@ -100,14 +101,15 @@ async def get_reward(request: RewardRequest):
     rewards = [1.0 if result["complete"] else 0.0 for result in verification_results]
     
     if config.debug:
-        for i in range(len(request.queries)):
-            debug_dict = {
-                "query": request.queries[i],
-                "reward": rewards[i],
-                "errors": verification_results[i].get("errors", []),
-                "code": codes[i],
-            }
-            logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
+        # for i in range(len(request.queries)):
+        i = random.randint(0, len(request.queries) - 1)
+        debug_dict = {
+            "query": request.queries[i],
+            "reward": rewards[i],
+            "errors": verification_results[i].get("errors", []),
+            # "code": codes[i],
+        }
+        logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
     
     average_reward = sum(rewards) / len(rewards)
     logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
@@ -124,7 +126,7 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=150, help="Verification timeout (seconds)")
     parser.add_argument("--max_concurrent", type=int, default=16, help="Maximum concurrent verification requests")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
-    
+    parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     args = parser.parse_args()
     
     # Configure logging based on debug mode
@@ -136,7 +138,7 @@ if __name__ == "__main__":
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler()
-        ] if args.debug else [logging.StreamHandler()]
+        ] if args.use_log_file else [logging.StreamHandler()]
     )
     
     logger.info(f"Starting server with config: {vars(args)}")
