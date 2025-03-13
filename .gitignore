@@ -157,3 +157,5 @@ checkpoints
 checkpoint
 logs/*
 logs
+wandb/*
+wandb

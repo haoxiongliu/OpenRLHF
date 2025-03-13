@@ -29,11 +29,12 @@ class TaskQueue(object):
     def _monitor(self):
         last_log_time = time.time()
         while not self.all_tasks_done.is_set():
-            if time.time() - last_log_time >= 60.0:
+            PERIOD = 60.0
+            if time.time() - last_log_time >= PERIOD:
                 with self.lock:
                     if len(self._monitor_log) > 0:
-                        print('TaskQueue-{}:  {} requests popped with avg batch_size {:.1f} in last period  {} waiting in queue'.format(
-                            self.name, np.sum(self._monitor_log), np.mean(self._monitor_log), len(self.waiting_list),
+                        print('TaskQueue-{}:  {} requests popped with avg batch_size {:.1f} in last {}s. {} waiting in queue.'.format(
+                            self.name, np.sum(self._monitor_log), np.mean(self._monitor_log), PERIOD, len(self.waiting_list),
                         ))
                         self._monitor_log[:] = []
                 last_log_time = time.time()
