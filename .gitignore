@@ -159,3 +159,5 @@ logs/*
 logs
 wandb/*
 wandb
+results/*
+results
