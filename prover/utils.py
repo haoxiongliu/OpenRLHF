@@ -8,7 +8,7 @@ from datetime import datetime
 from collections import UserDict
 from importlib.machinery import SourceFileLoader
 from easydict import EasyDict as AttrDict
-
+import re
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
@@ -76,6 +76,19 @@ def load_jsonl_objects(input_path):
             objects.append(json.loads(line))
     return objects
 
+
+def extract_code(text: str, strict: bool = False) -> str:
+    code = None
+    if m:= re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL):
+        code = m.group(1)   
+    elif m:= re.search(r'```\S*\n(.*)', text, re.DOTALL):
+        if strict:
+            code = "[[Code no end.]]"
+        else:
+            code = m.group(1) # no ``` case
+    else:
+        code = "[[No code found.]]"
+    return code
 
 class ConcurrentJob(object):
     def __init__(self, stage_list):

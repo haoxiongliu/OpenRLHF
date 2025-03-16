@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 import random
 
 from prover.lean.verifier import Lean4ServerScheduler
+from prover.utils import extract_code
 
 # Setup logging
 logs_dir = Path("logs")
@@ -63,16 +64,6 @@ class RewardConfig:
         )
 
 config = RewardConfig()
-
-def extract_code(text: str) -> Optional[str]:
-    code = None
-    if m:= re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL):
-        code = m.group(1)   
-    elif m:= re.search(r'```\S*\n(.*)', text, re.DOTALL):
-        code = m.group(1)   # no ``` case
-    else:
-        code = "[[No code found.]]"
-    return code
 
 @app.post("/reward")
 async def get_reward(request: RewardRequest):
