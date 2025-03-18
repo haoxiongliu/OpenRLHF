@@ -14,7 +14,7 @@ from openrlhf.models.actor import Actor
 from openrlhf.models.ring_attn_utils import pad_sequences, unpad_sequences
 from openrlhf.models.utils import compute_approx_kl, compute_reward, masked_mean, unpacking_samples
 from openrlhf.utils.logging_utils import init_logger
-from openrlhf.utils.remote_rm_utils import remote_rm_fn, remote_rm_fn_ray
+from openrlhf.utils.remote_rm_utils import remote_rm_fn_ray
 
 logger = init_logger(__name__)
 
@@ -231,6 +231,7 @@ class NaiveExperienceMaker(ABC):
         if self.strategy.args.vllm_enable_sleep:
             batch_vllm_engine_call(self.vllm_engines, "sleep")
 
+        torch.cuda.empty_cache()
         torch.distributed.barrier()
         torch.cuda.synchronize()
 
@@ -324,88 +325,7 @@ class NaiveExperienceMaker(ABC):
 
     @torch.no_grad()
     def make_experience(self, samples: Samples) -> Experience:
-        """
-        Turn samples into experience by calculating logprobs, values, rewards, and kl divergence.
-        """
-        self.actor.eval()
-        if self.initial_model is not None:
-            self.initial_model.eval()
-        if self.reward_model is not None:
-            self.reward_model.eval()
-        if self.critic is not None:
-            self.critic.eval()
-
-        # extract values from samples
-        sequences = samples.sequences
-        attention_mask = samples.attention_mask
-        action_mask = samples.action_mask
-        num_actions = samples.num_actions
-
-        # log probs
-        action_log_probs = self.actor(sequences, num_actions, attention_mask)
-
-        # init log probs
-        if self.initial_model is not None:
-            base_action_log_probs = self.initial_model(sequences, num_actions, attention_mask)
-        else:
-            base_action_log_probs = None
-
-        # values
-        if self.critic is not None:
-            value = self.critic(sequences, num_actions, attention_mask)
-        else:
-            value = None
-
-        # rewards
-        if self.remote_rm_url is not None:
-            # remote RM
-            queries = self.tokenizer.batch_decode(sequences.cpu(), skip_special_tokens=False)
-            if self.custom_reward_func:
-                r = self.custom_reward_func(queries, samples.prompts, samples.labels).to(
-                    device=action_log_probs.device
-                )
-            else:
-                r = remote_rm_fn(
-                    self.remote_rm_url, queries=queries, prompts=samples.prompts, labels=samples.labels
-                ).to(device=action_log_probs.device)
-        else:
-            # local RM
-            r = self.reward_model(sequences, attention_mask)
-
-        if (self.initial_model is not None) and (not self.strategy.args.use_kl_loss):
-            kl = compute_approx_kl(
-                action_log_probs,
-                base_action_log_probs,
-                action_mask=action_mask,
-                kl_estimator=self.strategy.args.kl_estimator,
-            )
-        else:
-            kl = torch.zeros_like(action_log_probs, dtype=action_log_probs.dtype, device=action_log_probs.device)
-
-        info = {
-            "kl": masked_mean(kl, action_mask, dim=-1),
-            "reward": r,
-            "response_length": samples.response_length,
-            "total_length": samples.total_length,
-            "num_actions": num_actions,
-        }
-        # reset model state
-        self.actor.train()
-        if self.critic is not None:
-            self.critic.train()
-
-        return Experience(
-            sequences,
-            action_log_probs,
-            base_action_log_probs,
-            value,
-            None,
-            None,
-            attention_mask,
-            action_mask,
-            info,
-            kl,
-        )
+        raise NotImplementedError("This method should be implemented by the subclass.")
 
     @torch.no_grad()
     def process_experiences(self, experiences: List[Experience]) -> Tuple[List[Experience], List[torch.Tensor]]:
@@ -646,24 +566,29 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
                 )
         else:
             # remote RM
-            if not self.packing_samples:
-                queries = self.tokenizer.batch_decode(sequences_cpu, skip_special_tokens=False)
-            else:
-                sequences_list = []
-                offset = 0
-                tokens_list = sequences_cpu.tolist()[0]
-                for length in packed_seq_lens:
-                    sequences_list.append(tokens_list[offset : offset + length])
-                    offset += length
-                queries = self.tokenizer.batch_decode(sequences_list, skip_special_tokens=False)
+            if self.strategy.ring_attn_group is None or self.strategy.ring_attn_rank == 0:
+                if not self.packing_samples:
+                    queries = self.tokenizer.batch_decode(sequences_cpu, skip_special_tokens=False)
+                else:
+                    sequences_list = []
+                    offset = 0
+                    tokens_list = sequences_cpu.tolist()[0]
+                    for length in packed_seq_lens:
+                        sequences_list.append(tokens_list[offset : offset + length])
+                        offset += length
+                    queries = self.tokenizer.batch_decode(sequences_list, skip_special_tokens=False)
 
-            if self.custom_reward_func:
-                r = self.custom_reward_func.remote(queries, samples.prompts, samples.labels)
-                r_refs.append(r)
-            else:
-                for rm in self.remote_rm_url:
-                    r = remote_rm_fn_ray.remote(rm, queries=queries, prompts=samples.prompts, labels=samples.labels)
+                if self.custom_reward_func:
+                    r = self.custom_reward_func.remote(queries, samples.prompts, samples.labels)
                     r_refs.append(r)
+                else:
+                    for rm in self.remote_rm_url:
+                        r = remote_rm_fn_ray.remote(
+                            rm, queries=queries, prompts=samples.prompts, labels=samples.labels
+                        )
+                        r_refs.append(r)
+            else:
+                r_refs.append(ray.put(None))
 
         if args.colocate_all_models and not self.remote_rm_url:
             ray.get(r_refs)
@@ -690,6 +615,16 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             base_action_log_probs = base_action_log_probs.to(device)
         if value is not None:
             value = value.to(device)
+
+        # broadcast rewards to all ring attention ranks when using remote RM
+        if self.remote_rm_url and self.strategy.ring_attn_group is not None:
+            if self.strategy.ring_attn_rank == 0:
+                dist.broadcast_object_list(rewards, src=dist.get_rank(), group=self.strategy.ring_attn_group)
+            else:
+                dist.broadcast_object_list(
+                    rewards, src=self.strategy.ring_attn_ranks[0], group=self.strategy.ring_attn_group
+                )
+
         rewards = [r.to(device) for r in rewards]
         r = self.reward_fn(rewards) if len(rewards) > 0 else rewards[0]
 
@@ -698,6 +633,7 @@ class RemoteExperienceMaker(NaiveExperienceMaker):
             ray.get([self.reward_model[0].empty_cache.remote()])
 
         if args.colocate_actor_ref or args.colocate_all_models:
+            torch.cuda.synchronize()
             torch.cuda.empty_cache()
 
         if (self.initial_model is not None) and (not args.use_kl_loss):

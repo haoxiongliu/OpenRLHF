@@ -22,6 +22,7 @@ def get_strategy(args):
 
     strategy = DeepspeedStrategy(
         seed=getattr(args, "seed", 42),
+        full_determinism=getattr(args, "full_determinism", False),
         max_norm=getattr(args, "max_norm", 1.0),
         micro_train_batch_size=getattr(args, "micro_train_batch_size", 1),
         train_batch_size=getattr(args, "train_batch_size", 128),
@@ -65,7 +66,7 @@ def blending_datasets(
             data = load_dataset(dataset, trust_remote_code=True)
             strategy.print(f"loaded {dataset} with python script")
         # local text file
-        elif ext in [".json", ".jsonl", ".csv"]:
+        elif ext in [".json", ".jsonl", ".csv", ".parquet"]:
             ext = ext.lower().strip(".")
             if ext == "jsonl":
                 ext = "json"
