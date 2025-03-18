@@ -48,18 +48,21 @@ class RewardConfig:
                  lean_workspace: str = None,
                  timeout: int = 300,
                  max_concurrent_requests: int = 16,
+                 memory_limit: float = 5,
                  debug: bool = False):
         self.lake_path = lake_path or os.path.expanduser('~/.elan/bin/lake')
         self.lean_workspace = lean_workspace or 'mathlib4/'
         self.timeout = timeout
         self.max_concurrent_requests = max_concurrent_requests
+        self.memory_limit = memory_limit
         self.debug = debug
         
         # Initialize Lean4ServerScheduler
-        logger.info(f"Initializing Lean4ServerScheduler with {max_concurrent_requests} concurrent requests")
+        logger.info(f"Initializing Lean4ServerScheduler with {max_concurrent_requests} concurrent requests and {memory_limit}GB memory limit")
         self.scheduler = Lean4ServerScheduler(
             max_concurrent_requests=self.max_concurrent_requests, 
             timeout=self.timeout, 
+            memory_limit=self.memory_limit,
             name='reward_verifier'
         )
 
@@ -116,6 +119,7 @@ if __name__ == "__main__":
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
     parser.add_argument("--timeout", type=int, default=150, help="Verification timeout (seconds)")
     parser.add_argument("--max_concurrent", "-n", type=int, default=16, help="Maximum concurrent verification requests")
+    parser.add_argument("--memory_limit", type=float, default=3, help="Memory limit in GB for Lean processes")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     args = parser.parse_args()
@@ -140,6 +144,7 @@ if __name__ == "__main__":
         lean_workspace=args.lean_workspace,
         timeout=args.timeout,
         max_concurrent_requests=args.max_concurrent,
+        memory_limit=args.memory_limit,
         debug=args.debug
     )
     
