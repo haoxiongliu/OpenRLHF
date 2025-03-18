@@ -151,6 +151,7 @@ core
 */checkpoint/*
 play.sh
 play.ipynb
+play.py
 scripts/*
 scripts
 checkpoints

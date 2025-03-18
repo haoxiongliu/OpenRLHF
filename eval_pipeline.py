@@ -49,7 +49,7 @@ def main(args):
 
     model_inputs = []
     for data in data_list:
-        format_str = "Complete the following Lean 4 code with explanatory comments preceding each line of code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}"
+        format_str = "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}"
         model_inputs.append(format_str.format(
             header=data.get('header', LEAN4_DEFAULT_HEADER),
             informal_prefix=data.get('informal_prefix', str()),
