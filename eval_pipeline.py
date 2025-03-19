@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import os
 import pandas as pd
+from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code
@@ -56,7 +57,7 @@ def main(args):
             formal_statement=data['formal_statement'],
         ))
 
-    model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=4096)
+    model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=4096, gpu_memory_utilization=args.gpu_memory_utilization)
 
     sampling_params = SamplingParams(temperature=args.temperature, max_tokens=2048, top_p=0.95, n=args.n)
     model_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
@@ -91,6 +92,14 @@ def main(args):
     with open(summary_path, "w") as f:
         json.dump(result, f)
     print(result)
+    infos = {
+        "model": args.model_path,
+        "n": args.n,
+        "timestamp": datetime.now().strftime("%m%d-%H%M")
+    }
+    infos.update(result)
+    with open(args.log_file, "a") as f:
+        f.write(f"{infos}\n")
 
     df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
 
@@ -107,7 +116,9 @@ if __name__ == "__main__":
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
     parser.add_argument('--timeout', default=300, type=float)
+    parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
+    parser.add_argument('--log_file', default="logs/summary.log", type=str)
     args = parser.parse_args()
     
     main(args)
