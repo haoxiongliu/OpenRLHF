@@ -117,7 +117,7 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5000, help="Server port")
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
-    parser.add_argument("--timeout", type=int, default=300, help="Verification timeout (seconds)")
+    parser.add_argument("--timeout", type=int, default=120, help="Verification timeout (seconds)")
     parser.add_argument("--max_concurrent", "-n", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=5, help="Memory limit in GB for Lean processes")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
