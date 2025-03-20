@@ -34,10 +34,14 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     start_time = time.time()
     system_messages = ''
     try:
-        with tempfile.TemporaryFile(mode='w+', encoding='utf-8') as temp_file:
-            temp_file.write(message_str + "\r\n\r\n")
-            temp_file.seek(0)
-            outputs = subprocess.run([lake_path, "exe", 'repl'], stdin=temp_file, capture_output=True, text=True, cwd=lean_workspace, timeout=timeout)
+        outputs = subprocess.run(
+            [lake_path, "exe", 'repl'], 
+            input=message_str + "\r\n\r\n", 
+            capture_output=True, 
+            text=True, 
+            cwd=lean_workspace, 
+            timeout=timeout
+        )
         result = json.loads(outputs.stdout)
         ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
         result = {
