@@ -23,55 +23,6 @@ DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
 DEFAULT_LEAN_WORKSPACE = 'mathlib4/'
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
-
-def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
-                      verbose=False, timeout=300, allTactics=False, ast=False, premises=False, tactics=False):
-    """Standalone verification function that creates a new repl process for each verification."""
-    command = dict(cmd=code, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
-    if last_env is not None:
-        command.update(env=last_env)
-    message_str = json.dumps(command, ensure_ascii=False)
-    if verbose:
-        print(message_str)
-    start_time = time.time()
-    system_messages = ''
-    try:
-        outputs = subprocess.run(
-            [lake_path, "exe", 'repl'], 
-            input=message_str + "\r\n\r\n", 
-            capture_output=True, 
-            text=True, 
-            cwd=lean_workspace, 
-            timeout=timeout
-        )
-        result = json.loads(outputs.stdout)
-        ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
-        result = {
-            "sorries": result.get('sorries', []), 
-            "tactics": result.get('tactics', []),
-            "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
-            "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
-            "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
-            "system_messages": system_messages,
-            "system_errors": None,
-            "ast": ast_results,
-            "verified_code": code,
-        }
-        result['pass'] = not result['errors']
-        result['complete'] = result['pass'] and not result['sorries'] and not any(
-            "declaration uses 'sorry'" in w['data'] or 'failed' in w['data'] for w in result['warnings']
-        )
-    except Exception:
-        result = {
-            "pass": False,
-            "complete": False,
-            "system_errors": traceback.format_exc(),
-            "system_messages": system_messages
-        }
-    result['verify_time'] = time.time() - start_time
-    return result
-
-
 class Lean4ServerProcess(mp.Process):
     def __init__(self, idx, task_queue, request_statuses, lock, extra_args=AttrDict()):
         super().__init__()
@@ -90,8 +41,6 @@ class Lean4ServerProcess(mp.Process):
         self.default_header = extra_args.get('default_header', LEAN4_DEFAULT_HEADER)
         self.repl_process = None
 
-        # A Process object will execute its run method when p.start() is called
-    
     def _initialize_repl_process(self):
         """Create a REPL process using a pseudo-terminal"""
         
@@ -253,6 +202,7 @@ class Lean4ServerProcess(mp.Process):
             
         verification_result['verify_time'] = time.time() - start_time
         return verification_result
+    
     def _cleanup_repl(self):
         """Clean up the REPL process and pseudo-terminal using more reliable termination"""
         try:
@@ -293,7 +243,6 @@ class Lean4ServerProcess(mp.Process):
                 except (OSError, TypeError) as e:
                     print(f"Error closing master_fd: {str(e)}")
                 self.master_fd = None
-            
             self.repl_process = None
     
     def run(self):
@@ -302,7 +251,6 @@ class Lean4ServerProcess(mp.Process):
         if not self._initialize_repl_process():
             print(f"Process {self.idx}: Failed to create initial REPL process, exiting")
             return
-        # print(f"Process {self.idx}: Cached default header environment")
 
         try:
             count = 0
@@ -328,11 +276,8 @@ class Lean4ServerProcess(mp.Process):
                         task = dict(code=task)
                     elif not isinstance(task, dict):
                         raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
-                    
-                    # Use our single persistent REPL instance to verify
                     result = self._verify_lean4_with_persistent_repl(**task)
                     
-                    # Handle specific errors requiring restart
                     critical_errors = [
                         'lean::exception: failed to create thread', 
                         'std::bad_alloc: std::bad_alloc',
