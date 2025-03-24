@@ -191,10 +191,11 @@ class Lean4ServerProcess(mp.Process):
             return response_obj
 
         except Exception as e:
-            print(f"REPL error: {str(e)}")
+            error_msg = traceback.format_exc()
+            print(error_msg)
             self._cleanup_repl()
             self._initialize_repl_process()
-            return {"messages": [{"data": str(e), "severity": "error"}]}
+            return {"messages": [{"data": error_msg, "severity": "error"}]}
     
     def _verify_lean4_with_persistent_repl(self, code: str, allTactics: bool=False, ast: bool=False, premises: bool=False, tactics: bool=False):
         start_time = time.time()
@@ -296,7 +297,7 @@ class Lean4ServerProcess(mp.Process):
             while True:
                 inputs = self.task_queue.get()
                 count += 1
-                if count > 5:
+                if count > 2:
                     self._initialize_repl_process()
                     count = 0
                 if inputs is None:  # Terminate signal
