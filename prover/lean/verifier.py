@@ -167,7 +167,7 @@ class Lean4ServerProcess(mp.Process):
                 remaining = max(0.1, self.timeout - (time.time() - start_time))
                 ready, _, _ = select.select([self.master_fd], [], [], remaining)
                 if not ready:
-                    raise TimeoutError(f"REPL process timeout after {self.timeout} seconds")
+                    return {"messages": [{"data": f"REPL process timeout after {self.timeout} seconds", "severity": "error"}]}
                 
                 # Read chunk
                 chunk = os.read(self.master_fd, 4096)
@@ -176,7 +176,7 @@ class Lean4ServerProcess(mp.Process):
                     
                 response += chunk
                 if len(response) > max_size:
-                    raise RuntimeError("Response too large")
+                    return {"messages": [{"data": "REPL process response too large", "severity": "error"}]}
                 
                 # Check for protocol delimiter
                 if b'\r\n\r\n' in response:
@@ -184,12 +184,12 @@ class Lean4ServerProcess(mp.Process):
                     response = msg  # Keep remaining data
                     break
                     
-            # Parse JSON with error handling
             try:
                 response_obj = json.loads(response.decode())
             except Exception as e:
                 return {"messages": [{"data": str(e), "severity": "error"}]}
             return response_obj
+
         except Exception as e:
             print(f"REPL error: {str(e)}")
             self._cleanup_repl()
