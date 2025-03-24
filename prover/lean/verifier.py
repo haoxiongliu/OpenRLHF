@@ -12,6 +12,7 @@ import select
 import pty
 import termios
 import signal
+import resource
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
@@ -98,6 +99,16 @@ class Lean4ServerProcess(mp.Process):
         try:
             self.master_fd, slave_fd = pty.openpty()
             self._set_raw_mode(self.master_fd)
+
+            # Define memory limit setup
+            def set_mem_limit():
+                if self.memory_limit > 0:
+                    bytes_limit = self.memory_limit * 1024 ** 3  # Convert GB to bytes
+                    resource.setrlimit(
+                        resource.RLIMIT_AS, 
+                        (bytes_limit, bytes_limit)
+                    )
+
             self.repl_process = subprocess.Popen(
                 [self.lake_path, "exe", 'repl'],
                 stdin=slave_fd,
@@ -105,7 +116,8 @@ class Lean4ServerProcess(mp.Process):
                 stderr=subprocess.DEVNULL,
                 text=False,
                 cwd=self.lean_workspace,
-                start_new_session=True
+                start_new_session=True,
+                preexec_fn=set_mem_limit if self.memory_limit > 0 else None
             )
             # Close slave fd since master process will use master_fd
             os.close(slave_fd)
@@ -295,11 +307,11 @@ class Lean4ServerProcess(mp.Process):
         try:
             count = 0
             while True:
-                inputs = self.task_queue.get()
                 count += 1
-                if count > 2:
+                if count > 1:
                     self._initialize_repl_process()
                     count = 0
+                inputs = self.task_queue.get()
                 if inputs is None:  # Terminate signal
                     break
                 
