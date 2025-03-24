@@ -120,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
     parser.add_argument("--timeout", type=int, default=120, help="Verification timeout (seconds)")
     parser.add_argument("--max_concurrent", "-n", type=int, default=32, help="Maximum concurrent verification requests")
-    parser.add_argument("--memory_limit", type=float, default=5, help="Memory limit in GB for Lean processes")
+    parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     args = parser.parse_args()
