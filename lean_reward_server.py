@@ -66,7 +66,8 @@ class RewardConfig:
             name='reward_verifier'
         )
 
-config = RewardConfig()
+global config
+# config = RewardConfig()
 
 @app.post("/reward")
 async def get_reward(request: RewardRequest):

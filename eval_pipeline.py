@@ -40,39 +40,49 @@ def summarize_results(codes, field):
 
 
 def main(args):
-    # Step 1: Inference
-    data_list = []
-    with open(args.input_path, 'r') as file:
-        for line in file:
-            data = json.loads(line)
-            if args.split == "none" or (data["split"] == args.split):
-                data_list.append(data)
+    if not args.use_existing_code:
+        # Step 1: Inference
+        data_list = []
+        with open(args.input_path, 'r') as file:
+            for line in file:
+                data = json.loads(line)
+                if args.split == "none" or (data["split"] == args.split):
+                    data_list.append(data)
 
-    model_inputs = []
-    for data in data_list:
-        format_str = "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}"
-        model_inputs.append(format_str.format(
-            header=data.get('header', LEAN4_DEFAULT_HEADER),
-            informal_prefix=data.get('informal_prefix', str()),
-            formal_statement=data['formal_statement'],
-        ))
+        model_inputs = []
+        for data in data_list:
+            format_str = "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}"
+            model_inputs.append(format_str.format(
+                header=data.get('header', LEAN4_DEFAULT_HEADER),
+                informal_prefix=data.get('informal_prefix', str()),
+                formal_statement=data['formal_statement'],
+            ))
 
-    model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=4096, gpu_memory_utilization=args.gpu_memory_utilization)
+        model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=4096, gpu_memory_utilization=args.gpu_memory_utilization)
 
-    sampling_params = SamplingParams(temperature=args.temperature, max_tokens=2048, top_p=0.95, n=args.n)
-    model_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
+        sampling_params = SamplingParams(temperature=args.temperature, max_tokens=2048, top_p=0.95, n=args.n)
+        model_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
 
-    to_inference_codes = []
-    os.makedirs(args.output_dir, exist_ok=True)
-    for i in range(len(data_list)):
-        data_list[i]["model_input"] = model_inputs[i]
-        data_list[i]["model_outputs"] = [output.text for output in model_outputs[i].outputs]
-        data_list[i]["full_code"] = [extract_code(model_inputs[i] + output.text, strict=False) for output in model_outputs[i].outputs]
-        to_inference_codes += [{"name": data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"], "code": code} for code in data_list[i]["full_code"]]
-        
-        with open(f'{args.output_dir}/full_records.jsonl', 'a') as f:
-            json.dump(data_list[i], f)
-            f.write('\n')
+        to_inference_codes = []
+        os.makedirs(args.output_dir, exist_ok=True)
+        for i in range(len(data_list)):
+            data_list[i]["model_input"] = model_inputs[i]
+            data_list[i]["model_outputs"] = [output.text for output in model_outputs[i].outputs]
+            data_list[i]["full_code"] = [extract_code(model_inputs[i] + output.text, strict=False) for output in model_outputs[i].outputs]
+            name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]
+            to_inference_codes += [{"name": name, "code": code} for code in data_list[i]["full_code"]]
+            
+            with open(f'{args.output_dir}/full_records.jsonl', 'a') as f:
+                json.dump(data_list[i], f)
+                f.write('\n')
+    else:
+        print(f"Using existing code from {args.use_existing_code}")
+        to_inference_codes = []
+        with open(args.use_existing_code, 'r') as file:
+            for line in file:
+                data = json.loads(line)
+                name = data["problem_id"] if "problem_id" in data else data["name"]
+                to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
 
     # Step 2: Compile
     if args.sync:
@@ -83,6 +93,7 @@ def main(args):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
     output_path = f'{args.output_dir}/code_compilation.json'
+    os.makedirs(args.output_dir, exist_ok=True)
     with open(output_path, 'w') as json_file:
         json.dump(to_inference_codes, json_file, indent=4)
 
@@ -119,6 +130,7 @@ if __name__ == "__main__":
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
+    parser.add_argument('--use_existing_code', type=str, default=None)
     args = parser.parse_args()
     
     main(args)
