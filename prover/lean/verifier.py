@@ -50,13 +50,13 @@ class Lean4ServerProcess(mp.Process):
             self._set_raw_mode(self.master_fd)
 
             # Define memory limit setup
-            def set_mem_limit():
-                if self.memory_limit > 0:
-                    bytes_limit = self.memory_limit * 1024 ** 3  # Convert GB to bytes
-                    resource.setrlimit(
-                        resource.RLIMIT_AS, 
-                        (bytes_limit, bytes_limit)
-                    )
+            # def set_mem_limit():
+            #     if self.memory_limit > 0:
+            #         bytes_limit = self.memory_limit * 1024 ** 3  # Convert GB to bytes
+            #         resource.setrlimit(
+            #             resource.RLIMIT_AS, 
+            #             (bytes_limit, bytes_limit)
+            #         )
 
             self.repl_process = subprocess.Popen(
                 [self.lake_path, "exe", 'repl'],
@@ -66,7 +66,7 @@ class Lean4ServerProcess(mp.Process):
                 text=False,
                 cwd=self.lean_workspace,
                 start_new_session=True,
-                preexec_fn=set_mem_limit if self.memory_limit > 0 else None
+                # preexec_fn=set_mem_limit if self.memory_limit > 0 else None
             )
             # Close slave fd since master process will use master_fd
             os.close(slave_fd)
