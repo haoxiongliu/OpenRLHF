@@ -256,7 +256,7 @@ class Lean4ServerProcess(mp.Process):
             count = 0
             while True:
                 count += 1
-                if count > 0:
+                if count > 1:
                     # every time restart due to memory consumption
                     self._initialize_repl_process()
                     count = 0
