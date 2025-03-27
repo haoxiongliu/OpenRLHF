@@ -37,20 +37,22 @@ class RewardConfig:
                  timeout: int = 300,
                  max_concurrent_requests: int = 16,
                  memory_limit: float = 5,
-                 debug: bool = False):
+                 debug: bool = False,
+                 use_pty: bool = False):
         self.lake_path = lake_path or os.path.expanduser('~/.elan/bin/lake')
         self.lean_workspace = lean_workspace or 'mathlib4/'
         self.timeout = timeout
         self.max_concurrent_requests = max_concurrent_requests
         self.memory_limit = memory_limit
         self.debug = debug
-        
+        self.use_pty = use_pty
         logger.info(f"Initializing Lean4ServerScheduler with {max_concurrent_requests} concurrent requests and {memory_limit}GB memory limit")
         self.scheduler = Lean4ServerScheduler(
             max_concurrent_requests=self.max_concurrent_requests, 
             timeout=self.timeout, 
             memory_limit=self.memory_limit,
-            name='reward_verifier'
+            name='reward_verifier',
+            use_pty=self.use_pty
         )
 
 
@@ -105,6 +107,7 @@ if __name__ == "__main__":
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
+    parser.add_argument("--use_pty", action="store_true", help="Use pty mode")
     args = parser.parse_args()
     
     log_level = logging.DEBUG if args.debug else logging.INFO
@@ -125,8 +128,9 @@ if __name__ == "__main__":
         timeout=args.timeout,
         max_concurrent_requests=args.max_concurrent,
         memory_limit=args.memory_limit,
-        debug=args.debug
-    )
+        debug=args.debug,
+        use_pty=args.use_pty
+    )   
     
     app = create_app(config_instance)
     logger.info(f"Starting server on {args.host}:{args.port}")

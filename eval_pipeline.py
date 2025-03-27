@@ -11,8 +11,8 @@ from prover.utils import extract_code
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
-async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False):
-    lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier')
+async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False):
+    lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty)
     tasks = [{
         "code": code,
         "ast": ast,
@@ -83,7 +83,7 @@ def main(args):
 
     # Step 2: Compile
     outputs_list = asyncio.run(compile_codes(
-        to_inference_codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics))
+        to_inference_codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -128,6 +128,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_existing_code', type=str, default=None)
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
+    parser.add_argument('--use_pty', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
     main(args)

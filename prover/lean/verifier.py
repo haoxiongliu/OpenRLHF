@@ -23,6 +23,54 @@ DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
 DEFAULT_LEAN_WORKSPACE = 'mathlib4/'
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
+
+def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
+                      verbose=False, timeout=300, allTactics=False, ast=False, premises=False, tactics=False):
+    """Standalone verification function that creates a new repl process for each verification."""
+    command = dict(cmd=code, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
+    if last_env is not None:
+        command.update(env=last_env)
+    message_str = json.dumps(command, ensure_ascii=False)
+    if verbose:
+        print(message_str)
+    start_time = time.time()
+    system_messages = ''
+    try:
+        outputs = subprocess.run(
+            [lake_path, "exe", 'repl'], 
+            input=message_str + "\r\n\r\n", 
+            capture_output=True, 
+            text=True, 
+            cwd=lean_workspace, 
+            timeout=timeout
+        )
+        result = json.loads(outputs.stdout)
+        ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
+        result = {
+            "sorries": result.get('sorries', []), 
+            "tactics": result.get('tactics', []),
+            "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
+            "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
+            "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
+            "system_messages": system_messages,
+            "system_errors": None,
+            "ast": ast_results,
+            # "verified_code": code,
+        }
+        result['pass'] = not result['errors']
+        result['complete'] = result['pass'] and not result['sorries'] and not any(
+            "declaration uses 'sorry'" in w['data'] or 'failed' in w['data'] for w in result['warnings']
+        )
+    except Exception:
+        result = {
+            "pass": False,
+            "complete": False,
+            "system_errors": traceback.format_exc(),
+            "system_messages": system_messages
+        }
+    result['verify_time'] = time.time() - start_time
+    return result
+
 class Lean4ServerProcess(mp.Process):
     def __init__(self, idx, task_queue, request_statuses, lock, extra_args=AttrDict()):
         super().__init__()
@@ -39,6 +87,7 @@ class Lean4ServerProcess(mp.Process):
         self.lean_workspace = extra_args.get('lean_workspace', DEFAULT_LEAN_WORKSPACE)
         self.env_cache = {}
         self.default_header = extra_args.get('default_header', LEAN4_DEFAULT_HEADER)
+        self.use_pty = extra_args.get('use_pty', False)
         self.repl_process = None
 
     def _initialize_repl_process(self):
@@ -102,9 +151,6 @@ class Lean4ServerProcess(mp.Process):
     def _check_header_reuse(self, code, header=None):
         if header is None:
             header = self.default_header
-        # header_lines = [line.strip() for line in self.default_header.split('\n') if line.strip()]
-        # code_lines = [line.strip() for line in code.split('\n') if line.strip()]
-        # return all(code_lines[i] == header_line for i, header_line in enumerate(header_lines))
         return code[:len(header)] == header
 
     def _strip_header_from_code(self, code, header=None):
@@ -251,65 +297,78 @@ class Lean4ServerProcess(mp.Process):
     
     def run(self):
         """Main worker process loop - runs once per process"""
-        # Initial REPL creation - only happens once per worker process
-        if not self._initialize_repl_process():
-            print(f"Process {self.idx}: Failed to create initial REPL process, exiting")
-            return
+        if self.use_pty:
+            if not self._initialize_repl_process():
+                print(f"Process {self.idx}: Failed to create initial REPL process, exiting")
+                return
 
-        try:
-            count = 0
+            try:
+                count = 0
+                while True:
+                    count += 1
+                    if count > 1:
+                        self._initialize_repl_process()
+                        count = 0
+                    inputs = self.task_queue.get()
+                    if inputs is None:
+                        break
+
+                    for _, request_id, task in inputs:
+                        ret_code = self.repl_process.poll()
+                        if ret_code is not None:
+                            print(f"Process {self.idx}: REPL process died with code {ret_code}, restarting")
+                            if not self._initialize_repl_process():
+                                raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
+                        if isinstance(task, str):
+                            task = dict(code=task)
+                        elif not isinstance(task, dict):
+                            raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
+                        result = self._verify_lean4_with_persistent_repl(**task)
+
+                        critical_errors = [
+                            'lean::exception: failed to create thread',
+                            'std::bad_alloc: std::bad_alloc',
+                            'Cannot allocate memory'
+                        ]
+
+                        if result.get('system_messages') and any(err in result['system_messages'] for err in critical_errors):
+                            retry_start = time.time()
+                            print(f"Process {self.idx}: Critical error detected, attempting REPL restart")
+                            while (any(err in result['system_messages'] for err in critical_errors) and 
+                                  time.time() - retry_start < self.timeout):
+                                self._initialize_repl_process()
+                                time.sleep(0.1)
+                                result = self._verify_lean4_with_persistent_repl(**task)
+
+                        with self.lock:
+                            self.request_statuses[request_id] = result
+                            self.last_output_time.value = time.time()
+                            self.complete_count.value += 1
+            finally:
+                self._cleanup_repl()
+        else:
+            # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
             while True:
-                count += 1
-                if count > 1:
-                    # every time restart due to memory consumption
-                    self._initialize_repl_process()
-                    count = 0
                 inputs = self.task_queue.get()
-                if inputs is None:  # Terminate signal
+                if inputs is None:
                     break
-                
                 for _, request_id, task in inputs:
-                    # Only check and restart REPL if it died
-                    ret_code = self.repl_process.poll()
-                    if ret_code is not None:
-                        print(f"Process {self.idx}: REPL process died with code {ret_code}, restarting")
-                        if not self._initialize_repl_process():
-                            raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
-                    
-                    # task can be a string or a dict
                     if isinstance(task, str):
                         task = dict(code=task)
                     elif not isinstance(task, dict):
                         raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
-                    result = self._verify_lean4_with_persistent_repl(**task)
-                    
-                    critical_errors = [
-                        'lean::exception: failed to create thread', 
-                        'std::bad_alloc: std::bad_alloc',
-                        'Cannot allocate memory'
-                    ]
-                    
-                    if result.get('system_messages') and any(err in result['system_messages'] for err in critical_errors):
-                        retry_start = time.time()
-                        print(f"Process {self.idx}: Critical error detected, attempting REPL restart")
-                        while (any(err in result['system_messages'] for err in critical_errors) and 
-                              time.time() - retry_start < self.timeout):
-                            self._initialize_repl_process()  # This will clean up and create new REPL
-                            time.sleep(0.1)
-                            result = self._verify_lean4_with_persistent_repl(**task)
-                    
+                    # Directly call verify_lean4_file without any REPL state or header mechanism
+                    result = verify_lean4_file(code=task['code'], lake_path=self.lake_path, lean_workspace=self.lean_workspace, timeout=self.timeout, allTactics=task.get('allTactics', False), ast=task.get('ast', False), premises=task.get('premises', False), tactics=task.get('tactics', False))
                     with self.lock:
                         self.request_statuses[request_id] = result
                         self.last_output_time.value = time.time()
                         self.complete_count.value += 1
-        finally:
-            self._cleanup_repl()
 
 
 class Lean4ServerScheduler(ProcessScheduler):
     def __init__(self, max_concurrent_requests=64, timeout=300, memory_limit=-1, name='verifier', 
                  lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE,
-                 default_header=LEAN4_DEFAULT_HEADER):
+                 default_header=LEAN4_DEFAULT_HEADER, use_pty=False):
         super().__init__(batch_size=1, name=name)
         
         self.processes = [
@@ -324,6 +383,7 @@ class Lean4ServerScheduler(ProcessScheduler):
                     lake_path=lake_path,
                     lean_workspace=lean_workspace,
                     default_header=default_header,
+                    use_pty=use_pty
                 )
             )
             for idx in range(max_concurrent_requests)
