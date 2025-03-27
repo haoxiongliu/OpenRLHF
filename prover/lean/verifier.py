@@ -94,7 +94,7 @@ class Lean4ServerProcess(mp.Process):
             if 'env' in result:
                 self.env_cache['default'] = result['env']
             else:
-                print(f"Process {self.idx}: Failed to get environment from default header")
+                print(f"Process {self.idx}: Failed to get environment from default header with {result=}")
         except Exception as e:
             print(f"Process {self.idx}: Failed to initialize default header: {str(e)}")
             traceback.print_exc()
