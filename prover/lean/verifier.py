@@ -16,7 +16,7 @@ import resource
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
-from prover.utils import AttrDict
+from prover.utils import AttrDict, remove_lean_comments
 
 HOME_DIR = os.path.expanduser('~')
 DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
@@ -158,10 +158,14 @@ class Lean4ServerProcess(mp.Process):
             self._initialize_repl_process()
             return {"messages": [{"data": error_msg, "severity": "error"}]}
     
-    def _verify_lean4_with_persistent_repl(self, code: str, allTactics: bool=False, ast: bool=False, premises: bool=False, tactics: bool=False):
+    def _verify_lean4_with_persistent_repl(self, code: str, allTactics: bool=False, ast: bool=False, premises: bool=False, tactics: bool=False, proof_aug: bool=False):
         start_time = time.time()
         system_messages = ''
         
+        if proof_aug:
+
+            raise NotImplementedError("Proof augmentation is not supported yet")
+
         try:
             assert 'default' in self.env_cache, "Default header environment not cached"
             command = dict(cmd=code, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
@@ -180,7 +184,7 @@ class Lean4ServerProcess(mp.Process):
                 "system_messages": system_messages,
                 "system_errors": None,
                 "ast": ast_results,
-                "verified_code": code,  # Keep original code for reference
+                # "verified_code": code,  # Keep original code for reference
             }
             verification_result['pass'] = not verification_result['errors']
             verification_result['complete'] = (

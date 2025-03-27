@@ -11,20 +11,17 @@ from prover.utils import extract_code
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
-async def compile_codes(codes, cpu, memory_limit, timeout=300):
+async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False):
     lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier')
-    request_id_list = lean4_scheduler.submit_all_request([code["code"] for code in codes])
+    tasks = [{
+        "code": code,
+        "ast": ast,
+        "tactics": tactics
+    } for code in codes]
+    request_id_list = lean4_scheduler.submit_all_request(tasks)
     outputs_list = await lean4_scheduler.async_get_all_request_outputs(request_id_list)
     lean4_scheduler.close()
     return outputs_list
-
-def compile_codes_sync(codes, cpu, memory_limit, timeout=300):
-    lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier')
-    request_id_list = lean4_scheduler.submit_all_request([code["code"] for code in codes])
-    outputs_list = lean4_scheduler.get_all_request_outputs(request_id_list)
-    lean4_scheduler.close()
-    return outputs_list
-
 
 def summarize_results(codes, field):
     df = pd.DataFrame(codes)
@@ -85,10 +82,8 @@ def main(args):
                 to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
 
     # Step 2: Compile
-    if args.sync:
-        outputs_list = compile_codes_sync(to_inference_codes, args.cpu, args.memory_limit, args.timeout)
-    else:
-        outputs_list = asyncio.run(compile_codes(to_inference_codes, args.cpu, args.memory_limit, args.timeout))
+    outputs_list = asyncio.run(compile_codes(
+        to_inference_codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -131,6 +126,8 @@ if __name__ == "__main__":
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
     parser.add_argument('--use_existing_code', type=str, default=None)
+    parser.add_argument('--ast', action='store_true', default=False)
+    parser.add_argument('--tactics', action='store_true', default=False)
     args = parser.parse_args()
-    
+    print(args)
     main(args)

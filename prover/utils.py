@@ -118,3 +118,18 @@ class ConcurrentJob(object):
                 self.reset()
                 return status
             self._stage_cache = status
+
+
+def remove_lean_comments(code: str) -> str:
+    """
+    Remove all Lean comments from the given code.
+    This function removes both single-line comments (starting with '--')
+    and block comments delimited by '/-' and '-/'.
+    """
+    # Remove block comments (which may span multiple lines)
+    code_without_block = re.sub(r'/\-.*?\-/', '', code, flags=re.DOTALL)
+    # Remove single-line comments
+    code_without_line = re.sub(r'--.*', '', code_without_block)
+    # Clean up: strip trailing spaces and remove any empty lines
+    lines = [line.rstrip() for line in code_without_line.splitlines()]
+    return "\n".join(line for line in lines if line.strip())

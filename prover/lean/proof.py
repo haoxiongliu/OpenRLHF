@@ -182,10 +182,10 @@ class ProofSummarizer(object):
             )
         )
 
-if __name__ == '__main__':
-    proof = Proof(full_code='', _args=AttrDict(require_verification=False))
-    segments = proof.segmentation()
-    prev_goal = proof.root_goal
+# if __name__ == '__main__':
+#     proof = Proof(full_code='', _args=AttrDict(require_verification=False))
+#     segments = proof.segmentation()
+#     prev_goal = proof.root_goal
     # for info in segments:
     #     partial_code += info.tactic_code
     #     code = partial_code + info.state_comment if self.tactic_state_comment else partial_code
