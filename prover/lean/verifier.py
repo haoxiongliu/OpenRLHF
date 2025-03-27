@@ -232,7 +232,7 @@ class Lean4ServerProcess(mp.Process):
                         try:
                             os.killpg(proc.pid, signal.SIGKILL)
                         except ProcessLookupError:
-                            pass
+                            print(f"Process {self.idx}: ProcessLookupError when killing REPL process")
                         try:
                             proc.wait(timeout=1)
                         except subprocess.TimeoutExpired:
