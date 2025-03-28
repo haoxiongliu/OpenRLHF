@@ -1,0 +1,1 @@
+try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try first | nlinarith | omega

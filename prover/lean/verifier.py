@@ -72,22 +72,23 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     return result
 
 class Lean4ServerProcess(mp.Process):
-    def __init__(self, idx, task_queue, request_statuses, lock, extra_args=AttrDict()):
+    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, default_header=LEAN4_DEFAULT_HEADER, use_pty=False, pty_restart_count=3):
         super().__init__()
         self.idx = idx
         self.task_queue = task_queue
         self.request_statuses = request_statuses
         self.lock = lock
         
-        self.timeout = extra_args.get('timeout', 300)
-        self.memory_limit = extra_args.get('memory_limit', -1)
+        self.timeout = timeout
+        self.memory_limit = memory_limit
         self.last_output_time = mp.Value(ctypes.c_double, time.time())
         self.complete_count = mp.Value(ctypes.c_int, 0)
-        self.lake_path = extra_args.get('lake_path', DEFAULT_LAKE_PATH)
-        self.lean_workspace = extra_args.get('lean_workspace', DEFAULT_LEAN_WORKSPACE)
+        self.lake_path = lake_path
+        self.lean_workspace = lean_workspace
         self.env_cache = {}
-        self.default_header = extra_args.get('default_header', LEAN4_DEFAULT_HEADER)
-        self.use_pty = extra_args.get('use_pty', False)
+        self.default_header = default_header
+        self.use_pty = use_pty
+        self.pty_restart_count = pty_restart_count
         self.repl_process = None
 
     def _initialize_repl_process(self):
@@ -209,7 +210,8 @@ class Lean4ServerProcess(mp.Process):
         system_messages = ''
         
         if proof_aug:
-
+            # proof_aug is only supported in Pty mode
+            
             raise NotImplementedError("Proof augmentation is not supported yet")
 
         try:
@@ -302,50 +304,48 @@ class Lean4ServerProcess(mp.Process):
                 print(f"Process {self.idx}: Failed to create initial REPL process, exiting")
                 return
 
-            try:
-                count = 0
-                while True:
-                    count += 1
-                    if count > 1:
-                        self._initialize_repl_process()
-                        count = 0
-                    inputs = self.task_queue.get()
-                    if inputs is None:
-                        break
+            count = 0
+            while True:
+                count += 1
+                if count >= self.pty_restart_count:
+                    self._initialize_repl_process()
+                    count = 0
+                inputs = self.task_queue.get()
+                if inputs is None:
+                    break
 
-                    for _, request_id, task in inputs:
-                        ret_code = self.repl_process.poll()
-                        if ret_code is not None:
-                            print(f"Process {self.idx}: REPL process died with code {ret_code}, restarting")
-                            if not self._initialize_repl_process():
-                                raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
-                        if isinstance(task, str):
-                            task = dict(code=task)
-                        elif not isinstance(task, dict):
-                            raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
-                        result = self._verify_lean4_with_persistent_repl(**task)
+                for _, request_id, task in inputs:
+                    ret_code = self.repl_process.poll()
+                    if ret_code is not None:
+                        print(f"Process {self.idx}: REPL process died with code {ret_code}, restarting")
+                        if not self._initialize_repl_process():
+                            raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
+                    if isinstance(task, str):
+                        task = dict(code=task)
+                    elif not isinstance(task, dict):
+                        raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
+                    result = self._verify_lean4_with_persistent_repl(**task)
 
-                        critical_errors = [
-                            'lean::exception: failed to create thread',
-                            'std::bad_alloc: std::bad_alloc',
-                            'Cannot allocate memory'
-                        ]
+                    critical_errors = [
+                        'lean::exception: failed to create thread',
+                        'std::bad_alloc: std::bad_alloc',
+                        'Cannot allocate memory'
+                    ]
 
-                        if result.get('system_messages') and any(err in result['system_messages'] for err in critical_errors):
-                            retry_start = time.time()
-                            print(f"Process {self.idx}: Critical error detected, attempting REPL restart")
-                            while (any(err in result['system_messages'] for err in critical_errors) and 
-                                  time.time() - retry_start < self.timeout):
-                                self._initialize_repl_process()
-                                time.sleep(0.1)
-                                result = self._verify_lean4_with_persistent_repl(**task)
+                    if result.get('system_messages') and any(err in result['system_messages'] for err in critical_errors):
+                        retry_start = time.time()
+                        print(f"Process {self.idx}: Critical error detected, attempting REPL restart")
+                        while (any(err in result['system_messages'] for err in critical_errors) and 
+                                time.time() - retry_start < self.timeout):
+                            self._initialize_repl_process()
+                            time.sleep(0.1)
+                            result = self._verify_lean4_with_persistent_repl(**task)
 
-                        with self.lock:
-                            self.request_statuses[request_id] = result
-                            self.last_output_time.value = time.time()
-                            self.complete_count.value += 1
-            finally:
-                self._cleanup_repl()
+                    with self.lock:
+                        self.request_statuses[request_id] = result
+                        self.last_output_time.value = time.time()
+                        self.complete_count.value += 1
+            
         else:
             # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
             while True:
@@ -364,11 +364,12 @@ class Lean4ServerProcess(mp.Process):
                         self.last_output_time.value = time.time()
                         self.complete_count.value += 1
 
+        self._cleanup_repl()
 
 class Lean4ServerScheduler(ProcessScheduler):
     def __init__(self, max_concurrent_requests=64, timeout=300, memory_limit=-1, name='verifier', 
                  lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE,
-                 default_header=LEAN4_DEFAULT_HEADER, use_pty=False):
+                 default_header=LEAN4_DEFAULT_HEADER, use_pty=False, pty_restart_count=3):
         super().__init__(batch_size=1, name=name)
         
         self.processes = [
@@ -377,14 +378,13 @@ class Lean4ServerScheduler(ProcessScheduler):
                 task_queue=self.task_queue,
                 request_statuses=self.request_statuses,
                 lock=self.lock,
-                extra_args=AttrDict(
-                    timeout=timeout,
-                    memory_limit=memory_limit,
-                    lake_path=lake_path,
-                    lean_workspace=lean_workspace,
-                    default_header=default_header,
-                    use_pty=use_pty
-                )
+                timeout=timeout,
+                memory_limit=memory_limit,
+                lake_path=lake_path,
+                lean_workspace=lean_workspace,
+                default_header=default_header,
+                use_pty=use_pty,
+                pty_restart_count=pty_restart_count
             )
             for idx in range(max_concurrent_requests)
         ]

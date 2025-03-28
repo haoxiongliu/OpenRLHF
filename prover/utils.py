@@ -8,7 +8,9 @@ from datetime import datetime
 from collections import UserDict
 from importlib.machinery import SourceFileLoader
 from easydict import EasyDict as AttrDict
+from copy import deepcopy
 import re
+import pandas as pd
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
@@ -133,3 +135,179 @@ def remove_lean_comments(code: str) -> str:
     # Clean up: strip trailing spaces and remove any empty lines
     lines = [line.rstrip() for line in code_without_line.splitlines()]
     return "\n".join(line for line in lines if line.strip())
+
+
+def is_statement(line: str) -> bool:
+    return line.strip().startswith("have") or line.startswith("theorem")
+
+
+def find_blocks(code: str) -> list[tuple[int, int]]:
+    """
+    Find 'have..by' blocks in Lean code. theorem..by is also included.
+    Recursively finds all blocks, including nested ones and one-line blocks.
+    
+    Args:
+        code: The Lean code as a string
+    
+    Returns:
+        List of tuples containing (start_line, end_line) positions for each block,
+        where end_line is the last line of the block.
+    """
+    # TODO: accodomate  have ...\n := by\n linarith
+    blocks = []
+    lines = code.splitlines()
+    
+    def process_lines(start_idx, end_idx, parent_indent=None):
+        if end_idx == start_idx + 1:
+            return
+        i = start_idx
+        while i < end_idx:
+            line = lines[i]
+            stripped_line = line.lstrip()
+            current_indent = len(line) - len(stripped_line)
+            # Look for lines that start with "have" or "theorem" and contain "by"
+            if is_statement(stripped_line):
+                start_line = i
+                block_indent = current_indent
+                i += 1
+                
+                # Find the end of this block
+                while i < end_idx:
+                    next_line = lines[i]
+                    next_indent = len(next_line) - len(next_line.lstrip())
+                    if next_indent <= block_indent:
+                        break
+                    i += 1
+                
+                end_line = i-1  # last line of the block
+                blocks.append((start_line, end_line))
+                process_lines(start_line + 1, end_line, block_indent)
+                continue
+            else:
+                i += 1
+    process_lines(0, len(lines))
+    
+    # Sort blocks by start line for consistent output
+    return sorted(blocks)
+    
+def get_semi_proofs(result: dict | str, block_threshold: int = 10) -> list[str]:
+    """
+    Get all semi-proofs in the given code_completion results.
+    For the structure of result, refer to verifier.py
+    We can simply find all 'have' keywords or 'by' keywords as the blocks of proof-qed in Isar. Use indentation to determine the end of a block.
+
+    Current version do not rely on errors to infer. Just get all semi-proofs.
+    By semi-proof, we mean substituting 
+
+    """
+    if isinstance(result, str):
+        code = result
+    else:
+        name, code, cr = result.get('name', ''), result.get('code', ''), result.get('compilation_result', {})
+        errors, complete = cr.get('errors', []), cr.get('complete', False)
+        assert code, "must have code"
+        if complete:
+            return [code]
+    
+    code = remove_lean_comments(code)
+    # 1. find the have...by... blocks, end by indentation
+    blocks = find_blocks(code)
+    # find all maximal non-overlapping block combinations
+    def get_maximal_combinations(blocks: list[tuple[int, int]]) -> list[list[tuple[int, int]]]:
+        """
+        Given a list of blocks as (start, end) tuples (with end included),
+        return all maximal combinations of non-overlapping blocks.
+        A combination is considered maximal if no additional block from the list
+        (beyond those already chosen) can be appended without overlapping.
+        """
+        results = []
+        # Check if a combination is maximal (no more blocks can be added)
+        def is_maximal(combination):
+            for block in blocks:
+                if block not in combination:
+                    # Check if this block can be added to the combination
+                    can_add = True
+                    for comb_block in combination:
+                        if not (block[0] > comb_block[1] or block[1] < comb_block[0]):
+                            can_add = False
+                            break
+                    if can_add:
+                        return False  # Not maximal if we can add another block
+            return True
+
+        def backtrack(start: int, current: list[tuple[int, int]]) -> None:
+            # Check if current combination is maximal before adding to results
+            if start >= len(blocks):
+                if current and is_maximal(current):
+                    results.append(current.copy())
+                return
+                
+            block = blocks[start]
+            # Option 1: Skip this block
+            backtrack(start + 1, current)
+            
+            # Option 2: Include this block if it doesn't overlap with any block in current
+            can_include = True
+            for comb_block in current:
+                # Check for overlap (end is inclusive, so strict inequality)
+                if not (block[0] > comb_block[1] or block[1] < comb_block[0]):
+                    can_include = False
+                    break
+                    
+            if can_include:
+                current.append(block)
+                backtrack(start + 1, current)
+                current.pop()  # Backtrack
+        
+        backtrack(0, [])
+        return results
+
+    # Get all maximal non-overlapping block combinations from the found blocks
+    if len(blocks) < block_threshold:
+        maximal_combinations = get_maximal_combinations(blocks)
+    else:
+        maximal_combinations = [[blocks[0]]]
+
+    semi_proofs = []
+    for combination in maximal_combinations:
+        lines = code.splitlines()
+        modified_lines = deepcopy(lines)  # Create a copy to modify
+        # Process blocks in reverse order to prevent line number shifts
+        for start, end in sorted(combination, key=lambda x: x[0], reverse=True):
+            # Modify the start line to replace after 'by' with 'sorry'
+            original_line = modified_lines[start]
+            modified_line = re.sub(r'(.*?\bby\b).*', r'\1 sorry', original_line)
+            modified_lines[start] = modified_line
+            # Remove subsequent lines of the block
+            del modified_lines[start+1 : end+1]
+        # Join the modified lines to form the semi-proof
+        semi_proof = '\n'.join(modified_lines)
+        semi_proofs.append(semi_proof)
+    
+
+
+    return semi_proofs
+
+
+
+def compare_compilation_summaries(
+        name1="DeepSeek-Prover-V1.5-RL-n1-pa", 
+        name2="DeepSeek-Prover-V1.5-RL-n1"
+    ):
+    """served for current version of proofaug 0329"""
+    # Load the two compilation summary CSV files
+    summary_pa = pd.read_csv(f'results/minif2f/{name1}/compilation_summary.csv', delimiter='\t')
+    summary_f2f = pd.read_csv(f'results/minif2f/{name2}/compilation_summary.csv', delimiter='\t')
+
+    # Merge the two dataframes on the 'name' column
+    merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
+
+    # Find the differences in the 'correct' column
+    merged_summary['difference'] = merged_summary['correct_pa'] != merged_summary['correct_f2f']
+
+    # Filter the results to show only the differences
+    differences = merged_summary[merged_summary['difference']]
+
+    # print the correct in pa but not in f2f
+    print(differences[differences['correct_pa'] == True]['name'])
+    print(f"total: {len(differences)}")

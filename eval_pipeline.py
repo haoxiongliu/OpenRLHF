@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code
+from prover.utils import extract_code, get_semi_proofs
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
@@ -82,8 +82,25 @@ def main(args):
                 to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
 
     # Step 2: Compile
+    if args.proofaug:
+        df= pd.DataFrame(to_inference_codes)
+        # get a dict that maps name to list of codes
+        name_to_codes = df.groupby("name")["code"].apply(list).to_dict()
+        to_inference_codes = []
+        for name, codes in name_to_codes.items():
+            extended_codes = set()
+            for code in codes:
+                semi_proofs = get_semi_proofs(code, block_threshold=10)
+                omni_tactic = r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
+                subst_proofs = [code.replace('sorry', omni_tactic) for code in semi_proofs]
+                extended_codes.update(subst_proofs)
+            to_inference_codes += [{"name": name, "code": code} for code in extended_codes]
+
+    codes = [code["code"] for code in to_inference_codes]
+    
+    print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
-        to_inference_codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty))
+        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -129,6 +146,7 @@ if __name__ == "__main__":
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
     parser.add_argument('--use_pty', action='store_true', default=False)
+    parser.add_argument('--proofaug', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
     main(args)
