@@ -302,12 +302,10 @@ def compare_compilation_summaries(
     # Merge the two dataframes on the 'name' column
     merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
 
-    # Find the differences in the 'correct' column
-    merged_summary['difference'] = merged_summary['correct_pa'] != merged_summary['correct_f2f']
+    # Find the pa correct but f2f incorrect
+    merged_summary['difference'] = (merged_summary['correct_pa'] > 0) & (merged_summary['correct_f2f'] == 0)
 
     # Filter the results to show only the differences
-    differences = merged_summary[merged_summary['difference']]
-
-    # print the correct in pa but not in f2f
-    print(differences[differences['correct_pa'] == True]['name'])
-    print(f"total: {len(differences)}")
+    differences = merged_summary['difference']
+    print(f"total {name1} correct but {name2} incorrect: {differences.sum()}")
+    return differences
