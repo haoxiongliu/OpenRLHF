@@ -392,11 +392,28 @@ class Lean4ServerScheduler(ProcessScheduler):
             p.start()
         print(f'Launched {len(self.processes)} LeanServerProcesses')
 
+        self._running_monitor = mp.Value(ctypes.c_bool, True)
+        # self._last_complete_count = mp.Value(ctypes.c_int, 0)
+        self._monitor_process = mp.Process(target=self._monitor)
+        self._monitor_process.start()
+    
+    def _monitor(self):
+        if not self.use_pty:
+            kill_timeout = self.timeout + 10
+        else:
+            kill_timeout = 2 * self.pty_restart_count * self.timeout
+        while self._running_monitor.value:
+            time.sleep(1.0)
+            subprocess.run(['killall', 'repl', f'--older-than={kill_timeout}s'], capture_output=True)
+    
     def close(self):
         super().close()
         for p in self.processes:
             p.join()
         print(f'All {len(self.processes)} LeanServerProcesses stopped')
+        self._running_monitor.value = False
+        self._monitor_process.join()
+        print('Monitor process stopped')
 
 
 if __name__ == '__main__':
