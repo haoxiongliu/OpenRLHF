@@ -326,21 +326,6 @@ class Lean4ServerProcess(mp.Process):
                         raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
                     result = self._verify_lean4_with_persistent_repl(**task)
 
-                    critical_errors = [
-                        'lean::exception: failed to create thread',
-                        'std::bad_alloc: std::bad_alloc',
-                        'Cannot allocate memory'
-                    ]
-
-                    if result.get('system_messages') and any(err in result['system_messages'] for err in critical_errors):
-                        retry_start = time.time()
-                        print(f"Process {self.idx}: Critical error detected, attempting REPL restart")
-                        while (any(err in result['system_messages'] for err in critical_errors) and 
-                                time.time() - retry_start < self.timeout):
-                            self._initialize_repl_process()
-                            time.sleep(0.1)
-                            result = self._verify_lean4_with_persistent_repl(**task)
-
                     with self.lock:
                         self.request_statuses[request_id] = result
                         self.last_output_time.value = time.time()
@@ -355,8 +340,8 @@ class Lean4ServerProcess(mp.Process):
                 for _, request_id, task in inputs:
                     if isinstance(task, str):
                         task = dict(code=task)
-                    elif not isinstance(task, dict):
-                        raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
+                    if 'timeout' not in task:
+                        task['timeout'] = self.timeout
                     # Directly call verify_lean4_file without any REPL state or header mechanism
                     result = verify_lean4_file(code=task['code'], lake_path=self.lake_path, lean_workspace=self.lean_workspace, timeout=self.timeout, allTactics=task.get('allTactics', False), ast=task.get('ast', False), premises=task.get('premises', False), tactics=task.get('tactics', False))
                     with self.lock:
@@ -373,6 +358,7 @@ class Lean4ServerScheduler(ProcessScheduler):
         super().__init__(batch_size=1, name=name)
         self.use_pty = use_pty
         self.timeout = timeout
+        self.pty_restart_count = pty_restart_count
         self.processes = [
             Lean4ServerProcess(
                 idx=idx,
@@ -394,18 +380,20 @@ class Lean4ServerScheduler(ProcessScheduler):
         print(f'Launched {len(self.processes)} LeanServerProcesses')
 
         self._running_monitor = mp.Value(ctypes.c_bool, True)
-        # self._last_complete_count = mp.Value(ctypes.c_int, 0)
+        self._last_complete_count = mp.Value(ctypes.c_int, 0)
         self._monitor_process = mp.Process(target=self._monitor)
-        self._monitor_process.start()
+        if not self.use_pty:
+            self._monitor_process.start()
     
     def _monitor(self):
-        if not self.use_pty:
-            kill_timeout = self.timeout + 10
-        else:
-            kill_timeout = 2 * self.pty_restart_count * self.timeout
         while self._running_monitor.value:
             time.sleep(1.0)
-            subprocess.run(['killall', 'repl', f'--older-than={kill_timeout}s'], capture_output=True)
+            if not self.use_pty:
+                kill_timeout = self.timeout + 10
+            else:
+                kill_timeout = 2 * self.pty_restart_count * self.timeout
+            # Kill both lake and repl processes that are older than timeout
+            subprocess.run(['killall', '-r', 'lake|repl', f'--older-than={int(kill_timeout)}s'], capture_output=True)
     
     def close(self):
         super().close()

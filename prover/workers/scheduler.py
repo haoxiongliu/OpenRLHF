@@ -29,7 +29,7 @@ class TaskQueue(object):
     def _monitor(self):
         last_log_time = time.time()
         while not self.all_tasks_done.is_set():
-            PERIOD = 60.0
+            PERIOD = 20.0
             if time.time() - last_log_time >= PERIOD:
                 with self.lock:
                     if len(self._monitor_log) > 0:

@@ -11,8 +11,8 @@ from prover.utils import extract_code, get_semi_proofs
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
-async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False):
-    lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty)
+async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3):
+    lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count)
     tasks = [{
         "code": code,
         "ast": ast,
@@ -113,7 +113,7 @@ def main(args):
     
     print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
-        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty))
+        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     parser.add_argument('-f', '--field', default="complete", choices=["complete", "pass"], type=str)
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
-    parser.add_argument('--timeout', default=300, type=float)
+    parser.add_argument('--timeout', default=300, type=int)
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
@@ -160,6 +160,7 @@ if __name__ == "__main__":
     parser.add_argument('--tactics', action='store_true', default=False)
     parser.add_argument('--use_pty', action='store_true', default=False)
     parser.add_argument('--proofaug', action='store_true', default=False)
+    parser.add_argument('--pty_restart_count', default=3, type=int)
     args = parser.parse_args()
     print(args)
     main(args)
