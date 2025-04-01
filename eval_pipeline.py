@@ -37,7 +37,28 @@ def summarize_results(codes, field):
 
 
 def main(args):
-    if not args.use_existing_code:
+    # Create output directory first
+    os.makedirs(args.output_dir, exist_ok=True)
+    
+    full_records_path = os.path.join(args.output_dir, 'full_records.jsonl')
+    
+    if args.use_existing_code:
+        print(f"Using existing code from {args.use_existing_code}")
+        to_inference_codes = []
+        with open(args.use_existing_code, 'r') as file:
+            for line in file:
+                data = json.loads(line)
+                name = data["problem_id"] if "problem_id" in data else data["name"]
+                to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
+    elif os.path.exists(full_records_path):
+        print(f"Loading existing records from {full_records_path}")
+        to_inference_codes = []
+        with open(full_records_path, 'r') as file:
+            for line in file:
+                data = json.loads(line)
+                name = data["problem_id"] if "problem_id" in data else data["name"]
+                to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
+    else:
         # Step 1: Inference
         data_list = []
         with open(args.input_path, 'r') as file:
@@ -69,17 +90,9 @@ def main(args):
             name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]
             to_inference_codes += [{"name": name, "code": code} for code in data_list[i]["full_code"]]
             
-            with open(f'{args.output_dir}/full_records.jsonl', 'a') as f:
+            with open(full_records_path, 'a') as f:
                 json.dump(data_list[i], f)
                 f.write('\n')
-    else:
-        print(f"Using existing code from {args.use_existing_code}")
-        to_inference_codes = []
-        with open(args.use_existing_code, 'r') as file:
-            for line in file:
-                data = json.loads(line)
-                name = data["problem_id"] if "problem_id" in data else data["name"]
-                to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
 
     # Step 2: Compile
     if args.proofaug:
