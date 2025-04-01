@@ -17,7 +17,7 @@ import errno
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
-from prover.utils import AttrDict, remove_lean_comments
+from prover.logger import logger
 
 HOME_DIR = os.path.expanduser('~')
 DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
@@ -92,16 +92,6 @@ class Lean4ServerProcess(mp.Process):
         self.pty_restart_count = pty_restart_count
         self.repl_process = None
         
-        # Set higher file descriptor limit
-        # try:
-        #     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        #     # Try to set to hard limit, but at least 65536
-        #     new_limit = max(hard, 65536)
-        #     resource.setrlimit(resource.RLIMIT_NOFILE, (new_limit, new_limit))
-        #     print(f"Process {idx}: Set file descriptor limit to {new_limit}")
-        # except Exception as e:
-        #     print(f"Process {idx}: Warning - Failed to set file descriptor limit: {str(e)}")
-
     def _initialize_repl_process(self):
         """Create a REPL process using a pseudo-terminal"""
         
@@ -114,19 +104,11 @@ class Lean4ServerProcess(mp.Process):
             def set_mem_limit():
                 if self.memory_limit > 0:
                     bytes_limit = int(self.memory_limit * 1024 ** 3)  # Convert GB to bytes
-                    # Set soft limit to 80% of hard limit to allow some flexibility
-                    soft_limit = int(bytes_limit * 0.8)
+                    soft_limit = bytes_limit
                     resource.setrlimit(
                         resource.RLIMIT_AS, 
                         (soft_limit, bytes_limit)  # (soft, hard)
                     )
-                # Set file descriptor limit in child process too
-                try:
-                    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-                    new_limit = max(hard, 65536)
-                    resource.setrlimit(resource.RLIMIT_NOFILE, (new_limit, new_limit))
-                except Exception as e:
-                    print(f"Process {self.idx}: Warning - Failed to set file descriptor limit in child: {str(e)}")
 
             self.repl_process = subprocess.Popen(
                 [self.lake_path, "exe", 'repl'],
@@ -144,8 +126,7 @@ class Lean4ServerProcess(mp.Process):
                 self._initialize_default_header_env()
             return True
         except Exception as e:
-            print(f"Process {self.idx}: Failed to initialize REPL: {str(e)}")
-            traceback.print_exc()
+            logger.error(f"Process {self.idx}: Failed to initialize REPL: {str(e)}", stack_info=True)
             return False
     
     def _set_raw_mode(self, fd):
@@ -155,7 +136,7 @@ class Lean4ServerProcess(mp.Process):
             attrs[3] = attrs[3] & ~(termios.ECHO | termios.ICANON)
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
         except Exception as e:
-            print(f"Warning: Failed to set raw mode: {str(e)}")
+            logger.warning(f"Warning: Failed to set raw mode: {str(e)}")
     
     def _initialize_default_header_env(self):
         try:
@@ -164,10 +145,9 @@ class Lean4ServerProcess(mp.Process):
             if 'env' in result:
                 self.env_cache['default'] = result['env']
             else:
-                print(f"Process {self.idx}: Failed to get environment from default header with {result=}")
+                logger.error(f"Process {self.idx}: Failed to get environment from default header with {result=}")
         except Exception as e:
-            print(f"Process {self.idx}: Failed to initialize default header: {str(e)}")
-            traceback.print_exc()
+            logger.error(f"Process {self.idx}: Failed to initialize default header: {str(e)}", stack_info=True)
     
     def _check_header_reuse(self, code, header=None):
         if header is None:
@@ -189,7 +169,14 @@ class Lean4ServerProcess(mp.Process):
             response = b''
             start_time = time.time()
             max_size = 10 * 1024 * 1024  # 10MB safety limit
-            
+
+            while True:
+                ready, _, _ = select.select([self.master_fd], [], [], 0.0)
+                if not ready:
+                    break
+                last_chunk = os.read(self.master_fd, 4096)  # Discard any buffered data
+                logger.warning(f"Non-read buffer data: {last_chunk}")
+                
             while True:
                 # Handle timeout
                 remaining = max(0.1, self.timeout - (time.time() - start_time))
@@ -215,12 +202,15 @@ class Lean4ServerProcess(mp.Process):
                 response += chunk
                 if len(response) > max_size:
                     return {"messages": [{"data": "REPL process response too large", "severity": "error"}]}
-                
-                # Check for protocol delimiter
+
+                # REPL protocol delimiter
                 if b'\r\n\r\n' in response:
-                    msg, _, _ = response.partition(b'\r\n\r\n')
+                    msg, _, tail = response.partition(b'\r\n\r\n')
+                    if tail != b'':
+                        raise ValueError(f"Process {self.idx}: Warning - REPL process response is not a valid JSON: {response}")
                     response = msg  # Keep remaining data
                     break
+
             if not response:
                 raise ValueError("Empty response from REPL")
             
@@ -234,11 +224,11 @@ class Lean4ServerProcess(mp.Process):
             self._initialize_repl_process()
             return {"messages": [{"data": str(e), "severity": "error"}]}
         except Exception as e:
-            error_msg = traceback.format_exc()
-            print(error_msg)
+            # error_msg = traceback.format_exc()
+            logger.error(str(e), stack_info=True)
             self._cleanup_repl()
             self._initialize_repl_process()
-            return {"messages": [{"data": error_msg, "severity": "error"}]}
+            return {"messages": [{"data": str(e), "severity": "error"}]}
     
     def _verify_lean4_with_persistent_repl(self, code: str, allTactics: bool=False, ast: bool=False, premises: bool=False, tactics: bool=False, proof_aug: bool=False):
         start_time = time.time()
@@ -315,20 +305,20 @@ class Lean4ServerProcess(mp.Process):
                         try:
                             os.killpg(proc.pid, signal.SIGKILL)
                         except ProcessLookupError:
-                            print(f"Process {self.idx}: ProcessLookupError when killing REPL process")
+                            logger.error(f"Process {self.idx}: ProcessLookupError when killing REPL process")
                         try:
                             proc.wait(timeout=1)
                         except subprocess.TimeoutExpired:
                             pass
         except Exception as e:
-            print(f"Cleanup error: {str(e)}")
+            logger.error(f"Cleanup error: {str(e)}")
         finally:
             # Handle file descriptor cleanup
             if hasattr(self, 'master_fd') and self.master_fd is not None:
                 try:
                     os.close(self.master_fd)
                 except (OSError, TypeError) as e:
-                    print(f"Error closing master_fd: {str(e)}")
+                    logger.error(f"Error closing master_fd: {str(e)}")
                 self.master_fd = None
             self.repl_process = None
             
@@ -338,15 +328,15 @@ class Lean4ServerProcess(mp.Process):
                 fd_count = int(subprocess.check_output(['lsof', '-n', '-w', '-p', str(os.getpid())]).decode().count('\n'))
                 # print(f"Process {self.idx}: Current file descriptor count: {fd_count}")
                 if fd_count > 1000:  # Warning threshold
-                    print(f"Process {self.idx}: Warning - High file descriptor count: {fd_count}")
+                    logger.warning(f"Process {self.idx}: Warning - High file descriptor count: {fd_count}")
             except Exception as e:
-                print(f"Process {self.idx}: Failed to check file descriptor count: {str(e)}")
+                logger.error(f"Process {self.idx}: Failed to check file descriptor count: {str(e)}")
 
     def run(self):
         """Main worker process loop - runs once per process"""
         if self.use_pty:
             if not self._initialize_repl_process():
-                print(f"Process {self.idx}: Failed to create initial REPL process, exiting")
+                logger.error(f"Process {self.idx}: Failed to create initial REPL process, exiting")
                 return
 
             count = 0
@@ -362,7 +352,7 @@ class Lean4ServerProcess(mp.Process):
                 for _, request_id, task in inputs:
                     ret_code = self.repl_process.poll()
                     if ret_code is not None:
-                        print(f"Process {self.idx}: REPL process died with code {ret_code}, restarting")
+                        logger.info(f"REPL process died with code {ret_code}, restarting, most probably due to memory limit")
                         if not self._initialize_repl_process():
                             raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
                     if isinstance(task, str):
@@ -422,7 +412,7 @@ class Lean4ServerScheduler(ProcessScheduler):
         ]
         for p in self.processes:
             p.start()
-        print(f'Launched {len(self.processes)} LeanServerProcesses')
+        logger.info(f'Launched {len(self.processes)} LeanServerProcesses')
 
         self._running_monitor = mp.Value(ctypes.c_bool, True)
         self._last_complete_count = mp.Value(ctypes.c_int, 0)
@@ -435,8 +425,8 @@ class Lean4ServerScheduler(ProcessScheduler):
             time.sleep(1.0)
             if not self.use_pty:
                 kill_timeout = self.timeout + 10
-            else:
-                kill_timeout = 2 * self.pty_restart_count * self.timeout
+            else:   # normally it does not happen
+                kill_timeout = self.pty_restart_count * self.timeout + 10
             # Kill both lake and repl processes that are older than timeout
             subprocess.run(['killall', '-r', 'lake|repl', f'--older-than={int(kill_timeout)}s'], capture_output=True)
     
@@ -444,11 +434,11 @@ class Lean4ServerScheduler(ProcessScheduler):
         super().close()
         for p in self.processes:
             p.join()
-        print(f'All {len(self.processes)} LeanServerProcesses stopped')
+        logger.info(f'All {len(self.processes)} LeanServerProcesses stopped')
         self._running_monitor.value = False
         if not self.use_pty:
             self._monitor_process.join()
-            print('Monitor process stopped')
+            logger.info('Monitor process stopped')
 
 
 if __name__ == '__main__':

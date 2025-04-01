@@ -8,20 +8,26 @@ from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code, get_semi_proofs
+from prover.logger import logger
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
 async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3):
     lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count)
     tasks = [{
-        "code": code,
-        "ast": ast,
-        "tactics": tactics
-    } for code in codes]
-    request_id_list = lean4_scheduler.submit_all_request(tasks)
-    outputs_list = await lean4_scheduler.async_get_all_request_outputs(request_id_list)
-    lean4_scheduler.close()
-    return outputs_list
+            "code": code,
+            "ast": ast,
+            "tactics": tactics
+        } for code in codes]
+    try:
+        request_id_list = lean4_scheduler.submit_all_request(tasks)
+        outputs_list = await lean4_scheduler.async_get_all_request_outputs(request_id_list)
+        return outputs_list
+    except Exception as e:
+        logger.error(f"Error compiling codes: {e}")
+        raise e
+    finally:
+        lean4_scheduler.close()
 
 def summarize_results(codes, field):
     df = pd.DataFrame(codes)
