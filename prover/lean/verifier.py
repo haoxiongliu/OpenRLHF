@@ -372,6 +372,7 @@ class Lean4ServerScheduler(ProcessScheduler):
                  default_header=LEAN4_DEFAULT_HEADER, use_pty=False, pty_restart_count=3):
         super().__init__(batch_size=1, name=name)
         self.use_pty = use_pty
+        self.timeout = timeout
         self.processes = [
             Lean4ServerProcess(
                 idx=idx,
