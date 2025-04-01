@@ -13,6 +13,7 @@ import pty
 import termios
 import signal
 import resource
+import errno
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
@@ -90,6 +91,16 @@ class Lean4ServerProcess(mp.Process):
         self.use_pty = use_pty
         self.pty_restart_count = pty_restart_count
         self.repl_process = None
+        
+        # Set higher file descriptor limit
+        # try:
+        #     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        #     # Try to set to hard limit, but at least 65536
+        #     new_limit = max(hard, 65536)
+        #     resource.setrlimit(resource.RLIMIT_NOFILE, (new_limit, new_limit))
+        #     print(f"Process {idx}: Set file descriptor limit to {new_limit}")
+        # except Exception as e:
+        #     print(f"Process {idx}: Warning - Failed to set file descriptor limit: {str(e)}")
 
     def _initialize_repl_process(self):
         """Create a REPL process using a pseudo-terminal"""
@@ -100,13 +111,22 @@ class Lean4ServerProcess(mp.Process):
             self._set_raw_mode(self.master_fd)
 
             # Define memory limit setup
-            # def set_mem_limit():
-            #     if self.memory_limit > 0:
-            #         bytes_limit = self.memory_limit * 1024 ** 3  # Convert GB to bytes
-            #         resource.setrlimit(
-            #             resource.RLIMIT_AS, 
-            #             (bytes_limit, bytes_limit)
-            #         )
+            def set_mem_limit():
+                if self.memory_limit > 0:
+                    bytes_limit = int(self.memory_limit * 1024 ** 3)  # Convert GB to bytes
+                    # Set soft limit to 80% of hard limit to allow some flexibility
+                    soft_limit = int(bytes_limit * 0.8)
+                    resource.setrlimit(
+                        resource.RLIMIT_AS, 
+                        (soft_limit, bytes_limit)  # (soft, hard)
+                    )
+                # Set file descriptor limit in child process too
+                try:
+                    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+                    new_limit = max(hard, 65536)
+                    resource.setrlimit(resource.RLIMIT_NOFILE, (new_limit, new_limit))
+                except Exception as e:
+                    print(f"Process {self.idx}: Warning - Failed to set file descriptor limit in child: {str(e)}")
 
             self.repl_process = subprocess.Popen(
                 [self.lake_path, "exe", 'repl'],
@@ -116,7 +136,7 @@ class Lean4ServerProcess(mp.Process):
                 text=False,
                 cwd=self.lean_workspace,
                 start_new_session=True,
-                # preexec_fn=set_mem_limit if self.memory_limit > 0 else None
+                preexec_fn=set_mem_limit if self.memory_limit > 0 else None
             )
             # Close slave fd since master process will use master_fd
             os.close(slave_fd)
@@ -175,10 +195,20 @@ class Lean4ServerProcess(mp.Process):
                 remaining = max(0.1, self.timeout - (time.time() - start_time))
                 ready, _, _ = select.select([self.master_fd], [], [], remaining)
                 if not ready:
-                    return {"messages": [{"data": f"REPL process timeout after {self.timeout} seconds", "severity": "error"}]}
+                    # seems to be the cause of misplaced timeout
+                    raise TimeoutError(f"REPL process timeout after {self.timeout} seconds")
                 
                 # Read chunk
-                chunk = os.read(self.master_fd, 4096)
+                try:
+                    chunk = os.read(self.master_fd, 4096)
+                except (OSError, IOError) as e:
+                    # Handle common errors that can occur even after select
+                    if e.errno in (errno.EBADF, errno.EINVAL):  # Bad file descriptor or Invalid argument
+                        return {"messages": [{"data": f"REPL process file descriptor error: {str(e)}", "severity": "error"}]}
+                    elif e.errno == errno.EINTR:  # Interrupted by signal
+                        continue  # Retry the read
+                    else:
+                        return {"messages": [{"data": f"Unexpected error reading from REPL: {str(e)}", "severity": "error"}]}
                 if not chunk:  # EOF
                     break
                     
@@ -191,13 +221,18 @@ class Lean4ServerProcess(mp.Process):
                     msg, _, _ = response.partition(b'\r\n\r\n')
                     response = msg  # Keep remaining data
                     break
-                    
+            if not response:
+                raise ValueError("Empty response from REPL")
+            
             try:
                 response_obj = json.loads(response.decode())
             except Exception as e:
                 return {"messages": [{"data": str(e), "severity": "error"}]}
             return response_obj
-
+        except TimeoutError as e:
+            self._cleanup_repl()
+            self._initialize_repl_process()
+            return {"messages": [{"data": str(e), "severity": "error"}]}
         except Exception as e:
             error_msg = traceback.format_exc()
             print(error_msg)
@@ -296,7 +331,17 @@ class Lean4ServerProcess(mp.Process):
                     print(f"Error closing master_fd: {str(e)}")
                 self.master_fd = None
             self.repl_process = None
-    
+            
+            # Monitor file descriptor count
+            try:
+                import subprocess
+                fd_count = int(subprocess.check_output(['lsof', '-n', '-w', '-p', str(os.getpid())]).decode().count('\n'))
+                # print(f"Process {self.idx}: Current file descriptor count: {fd_count}")
+                if fd_count > 1000:  # Warning threshold
+                    print(f"Process {self.idx}: Warning - High file descriptor count: {fd_count}")
+            except Exception as e:
+                print(f"Process {self.idx}: Failed to check file descriptor count: {str(e)}")
+
     def run(self):
         """Main worker process loop - runs once per process"""
         if self.use_pty:
@@ -401,8 +446,9 @@ class Lean4ServerScheduler(ProcessScheduler):
             p.join()
         print(f'All {len(self.processes)} LeanServerProcesses stopped')
         self._running_monitor.value = False
-        self._monitor_process.join()
-        print('Monitor process stopped')
+        if not self.use_pty:
+            self._monitor_process.join()
+            print('Monitor process stopped')
 
 
 if __name__ == '__main__':
