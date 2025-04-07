@@ -291,13 +291,13 @@ def get_semi_proofs(result: dict | str, block_threshold: int = 10) -> list[str]:
 
 
 def compare_compilation_summaries(
-        name1="DeepSeek-Prover-V1.5-RL-n1-pa", 
-        name2="DeepSeek-Prover-V1.5-RL-n1"
+        ref="DeepSeek-Prover-V1.5-RL-n1-pa", 
+        incre="DeepSeek-Prover-V1.5-RL-n1"
     ):
     """served for current version of proofaug 0329"""
     # Load the two compilation summary CSV files
-    summary_pa = pd.read_csv(f'results/minif2f/{name1}/compilation_summary.csv', delimiter='\t')
-    summary_f2f = pd.read_csv(f'results/minif2f/{name2}/compilation_summary.csv', delimiter='\t')
+    summary_pa = pd.read_csv(f'results/minif2f/{ref}/compilation_summary.csv', delimiter='\t')
+    summary_f2f = pd.read_csv(f'results/minif2f/{incre}/compilation_summary.csv', delimiter='\t')
 
     # Merge the two dataframes on the 'name' column
     merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
@@ -307,5 +307,6 @@ def compare_compilation_summaries(
 
     # Filter the results to show only the differences
     differences = merged_summary['difference']
-    print(f"total {name1} correct but {name2} incorrect: {differences.sum()}")
+    print(f"total {ref} correct but {incre} incorrect:\n {differences.sum()}")
     return differences
+

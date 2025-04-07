@@ -19,9 +19,6 @@ from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code
 
 # Setup logging
-logs_dir = Path("logs")
-logs_dir.mkdir(exist_ok=True)
-log_file = logs_dir / f"lean_reward_server_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
 
 logger = logging.getLogger("lean_reward_server")
 
@@ -108,9 +105,14 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     parser.add_argument("--use_pty", action="store_true", help="Use pty mode")
+    parser.add_argument("--pty_restart_count", type=int, default=10, help="Pty restart count")
     args = parser.parse_args()
     
     log_level = logging.DEBUG if args.debug else logging.INFO
+    logs_dir = Path("logs")
+    logs_dir.mkdir(exist_ok=True)
+    log_file = logs_dir / f"lean_reward_server_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+
     logging.basicConfig(
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

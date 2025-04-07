@@ -103,11 +103,11 @@ class Lean4ServerProcess(mp.Process):
             # Define memory limit setup
             def set_mem_limit():
                 if self.memory_limit > 0:
-                    bytes_limit = int(self.memory_limit * 1024 ** 3)  # Convert GB to bytes
-                    soft_limit = bytes_limit
+                    soft_limit = int(self.memory_limit * 1024 ** 3)  # Convert GB to bytes
+                    hard_limit = int(soft_limit + 1024 ** 3)  # 1GB extra
                     resource.setrlimit(
                         resource.RLIMIT_AS, 
-                        (soft_limit, bytes_limit)  # (soft, hard)
+                        (soft_limit, hard_limit)  # (soft, hard)
                     )
 
             self.repl_process = subprocess.Popen(
@@ -352,7 +352,10 @@ class Lean4ServerProcess(mp.Process):
                 for _, request_id, task in inputs:
                     ret_code = self.repl_process.poll()
                     if ret_code is not None:
-                        logger.info(f"REPL process died with code {ret_code}, restarting, most probably due to memory limit")
+                        if ret_code == 134:
+                            logger.debug(f"REPL process died with code {ret_code}, restarting, most probably due to memory limit")
+                        else:
+                            logger.error(f"REPL process died with code {ret_code}, unknown cause")
                         if not self._initialize_repl_process():
                             raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
                     if isinstance(task, str):

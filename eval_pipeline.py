@@ -110,7 +110,8 @@ def main(args):
             extended_codes = set()
             for code in codes:
                 semi_proofs = get_semi_proofs(code, block_threshold=10)
-                omni_tactic = r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
+                # omni_tactic = r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
+                omni_tactic = r"hint"
                 subst_proofs = [code.replace('sorry', omni_tactic) for code in semi_proofs]
                 extended_codes.update(subst_proofs)
             to_inference_codes += [{"name": name, "code": code} for code in extended_codes]
