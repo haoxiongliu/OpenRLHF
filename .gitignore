@@ -142,6 +142,10 @@ docs/.build
 # pytorch checkpoint
 *.pt
 
+# archived
+*/.archived/*
+
+
 core
 */ckpt/*
 .vscode
@@ -152,8 +156,8 @@ core
 play.sh
 play.ipynb
 play.py
-scripts/*
-scripts
+# scripts/*
+# scripts
 checkpoints
 checkpoint
 logs/*
