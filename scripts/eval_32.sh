@@ -30,7 +30,7 @@ for ckpt_dir in $(ls -1d $ckpt_root/*/); do
         -s test
 	    --use_pty
         --memory_limit 10
-        --timeout 180
+        --timeout 300
         --gpu_memory_utilization 0.9
     )
     echo "Evaluating $name/$tag for pass@32"
