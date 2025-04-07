@@ -219,13 +219,9 @@ class Lean4ServerProcess(mp.Process):
             except Exception as e:
                 return {"messages": [{"data": str(e), "severity": "error"}]}
             return response_obj
-        except TimeoutError as e:
-            self._cleanup_repl()
-            self._initialize_repl_process()
-            return {"messages": [{"data": str(e), "severity": "error"}]}
         except Exception as e:
-            # error_msg = traceback.format_exc()
-            logger.error(str(e), stack_info=True)
+            if not isinstance(e, TimeoutError):
+                logger.error(str(e), stack_info=True)
             self._cleanup_repl()
             self._initialize_repl_process()
             return {"messages": [{"data": str(e), "severity": "error"}]}
@@ -237,7 +233,7 @@ class Lean4ServerProcess(mp.Process):
         if proof_aug:
             # proof_aug is only supported in Pty mode
             
-            raise NotImplementedError("Proof augmentation is not supported yet")
+            raise NotImplementedError("ProofAug is not supported yet")
 
         try:
             assert 'default' in self.env_cache, "Default header environment not cached"
