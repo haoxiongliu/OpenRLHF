@@ -220,8 +220,6 @@ class Lean4ServerProcess(mp.Process):
                 return {"messages": [{"data": str(e), "severity": "error"}]}
             return response_obj
         except Exception as e:
-            if not isinstance(e, TimeoutError):
-                logger.error(str(e), stack_info=True)
             self._cleanup_repl()
             self._initialize_repl_process()
             return {"messages": [{"data": str(e), "severity": "error"}]}
