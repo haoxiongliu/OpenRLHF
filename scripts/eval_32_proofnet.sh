@@ -28,8 +28,6 @@ for ckpt_dir in $(ls -1d $ckpt_root/*/); do
         -g $num_gpus
         -c $num_cpus
         -s test
-	    --use_pty
-        --pty_restart_count 1
         --memory_limit 15
         --timeout 300
         --gpu_memory_utilization 0.9
