@@ -140,8 +140,9 @@ class Lean4ServerProcess(mp.Process):
     def _split_header_body(self, code):
         """Split the code into header and body. None if no header found."""
         # TODO: add support for more keywords, or other heuristics
+        # This is ad-hoc for proofnet dataset
         clean_code = remove_lean_comments(code)
-        match = re.search(r'\b(theorem|example|def|abbrev)\b', clean_code)
+        match = re.search(r'\b(theorem|example|def exe)', clean_code)
         if match:
             header, body = clean_code[:match.start()].strip(), clean_code[match.start():].strip()
         else:

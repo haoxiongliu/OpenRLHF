@@ -132,17 +132,17 @@ def main(args):
     # Step 3: Summarize
     result, df_grp = summarize_results(to_inference_codes, args.field)
     summary_path = f'{args.output_dir}/compilation_summary.json'
-    with open(summary_path, "w") as f:
-        json.dump(result, f)
-    print(result)
     infos = {
         "model": args.model_path,
         "n": args.n,
         "timestamp": datetime.now().strftime("%m%d-%H%M")
     }
-    infos.update(result)
+    result.update(infos)
     with open(args.log_file, "a") as f:
-        f.write(f"{infos}\n")
+        f.write(f"{result}\n")
+    with open(summary_path, "w") as f:
+        json.dump(result, f)
+    print(result)
 
     df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
 
