@@ -93,7 +93,7 @@ class Lean4ServerProcess(mp.Process):
         self.pty_restart_count = pty_restart_count
         self.repl_process = None
         
-    def _initialize_repl_process(self):
+    def _clean_init_repl(self):
         """Create a REPL process using a pseudo-terminal"""
         
         self._cleanup_repl()
@@ -142,15 +142,17 @@ class Lean4ServerProcess(mp.Process):
         # TODO: add support for more keywords, or other heuristics
         # This is ad-hoc for proofnet dataset
         clean_code = remove_lean_comments(code)
-        match = re.search(r'\b(theorem|example|def exe)', clean_code)
-        if match:
-            header, body = clean_code[:match.start()].strip(), clean_code[match.start():].strip()
+        match = re.search(r'\b(theorem|example|def exercise|def lemma)', clean_code)
+        if match is not None:
+            header, body = clean_code[:match.start()], clean_code[match.start():]
         else:
             header, body = None, clean_code
         return header, body
     
     def _initialize_header_env(self, header):
         """Initialize the environment for a given header"""
+        if header in self.header_dict:
+            return self.header_dict[header]
         command = dict(cmd=header, allTactics=False, ast=False, tactics=False, premises=False)
         result = self._send_command_to_repl(command)
         if 'env' not in result:
@@ -223,8 +225,7 @@ class Lean4ServerProcess(mp.Process):
                 return {"messages": [{"data": str(e), "severity": "error"}]}
             
         except Exception as e:
-            self._cleanup_repl()
-            self._initialize_repl_process()
+            self._clean_init_repl()
             return {"messages": [{"data": str(e), "severity": "error"}]}
     
     def _verify_lean4_with_persistent_repl(self, code: str, allTactics: bool=False, ast: bool=False, premises: bool=False, tactics: bool=False, proof_aug: bool=False):
@@ -240,14 +241,9 @@ class Lean4ServerProcess(mp.Process):
             command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
             
             # Check if we already have an environment for this header
-            if header in self.header_dict:
-                # Use the cached environment
-                command.update(env=self.header_dict[header])
-            elif header:
-                # If this is a new header, initialize its environment and cache it
-                # Exception handled in _initialize_header_env
+            if header is not None:
                 env = self._initialize_header_env(header)
-                if env:
+                if env is not None:
                     command.update(env=env)
             
             result = self._send_command_to_repl(command)
@@ -279,8 +275,7 @@ class Lean4ServerProcess(mp.Process):
                 "system_errors": traceback.format_exc(),
                 "system_messages": system_messages
             }
-            self._cleanup_repl()
-            self._initialize_repl_process()
+            self._clean_init_repl()
             
         verification_result['verify_time'] = time.time() - start_time
         return verification_result
@@ -294,7 +289,7 @@ class Lean4ServerProcess(mp.Process):
                 proc = self.repl_process
                 if proc.poll() is None:
                     # Send SIGTERM to process group
-                    if proc.pid:
+                    if proc.pid is not None:
                         try:
                             os.killpg(proc.pid, signal.SIGTERM)
                         except ProcessLookupError:
@@ -307,7 +302,7 @@ class Lean4ServerProcess(mp.Process):
                         time.sleep(0.1)
                     
                     # Force kill if still running
-                    if proc.poll() is None and proc.pid:
+                    if proc.poll() is None and proc.pid is not None:
                         try:
                             os.killpg(proc.pid, signal.SIGKILL)
                         except ProcessLookupError:
@@ -332,7 +327,7 @@ class Lean4ServerProcess(mp.Process):
     def run(self):
         """Main worker process loop - runs once per process"""
         if self.use_pty:
-            if not self._initialize_repl_process():
+            if not self._clean_init_repl():
                 logger.error(f"Process {self.idx}: Failed to create initial REPL process, exiting")
                 return
 
@@ -349,7 +344,7 @@ class Lean4ServerProcess(mp.Process):
                             logger.debug(f"REPL process died with code {ret_code}, restarting, most probably due to memory limit")
                         else:
                             logger.error(f"REPL process died with code {ret_code}, unknown cause")
-                        if not self._initialize_repl_process():
+                        if not self._clean_init_repl():
                             raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
                     if isinstance(task, str):
                         task = dict(code=task)
@@ -363,7 +358,7 @@ class Lean4ServerProcess(mp.Process):
                         self.complete_count.value += 1
                 count += 1
                 if count >= self.pty_restart_count:
-                    self._initialize_repl_process()
+                    self._clean_init_repl()
                     count = 0
         else:
             # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
