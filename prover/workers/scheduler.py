@@ -33,7 +33,7 @@ class TaskQueue(object):
             if time.time() - last_log_time >= PERIOD:
                 with self.lock:
                     if len(self._monitor_log) > 0:
-                        print('TaskQueue-{}:  {} requests popped with avg batch_size {:.1f} in last {}s. {} waiting in queue.'.format(
+                        print('TaskQueue-{}: {} requests popped with avg bs {:.1f} in last {}s. {} waiting in queue.'.format(
                             self.name, np.sum(self._monitor_log), np.mean(self._monitor_log), PERIOD, len(self.waiting_list),
                         ))
                         self._monitor_log[:] = []

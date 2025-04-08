@@ -14,10 +14,12 @@ import termios
 import signal
 import resource
 import errno
+import re
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
+from prover.utils import remove_lean_comments
 
 HOME_DIR = os.path.expanduser('~')
 DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
@@ -86,7 +88,7 @@ class Lean4ServerProcess(mp.Process):
         self.complete_count = mp.Value(ctypes.c_int, 0)
         self.lake_path = lake_path
         self.lean_workspace = lean_workspace
-        self.env_cache = {}
+        self.header_dict = {}  # Dictionary to store different headers and their environments
         self.default_header = default_header
         self.use_pty = use_pty
         self.pty_restart_count = pty_restart_count
@@ -123,7 +125,7 @@ class Lean4ServerProcess(mp.Process):
             # Close slave fd since master process will use master_fd
             os.close(slave_fd)
             if self.default_header:
-                self._initialize_default_header_env()
+                self._initialize_header_env(self.default_header)
             return True
         except Exception as e:
             logger.error(f"Process {self.idx}: Failed to initialize REPL: {str(e)}", stack_info=True)
@@ -138,27 +140,34 @@ class Lean4ServerProcess(mp.Process):
         except Exception as e:
             logger.warning(f"Warning: Failed to set raw mode: {str(e)}")
     
-    def _initialize_default_header_env(self):
-        try:
-            command = dict(cmd=self.default_header, allTactics=False, ast=False, tactics=False, premises=False)
-            result = self._send_command_to_repl(command)
-            if 'env' in result:
-                self.env_cache['default'] = result['env']
-            else:
-                logger.error(f"Process {self.idx}: Failed to get environment from default header with {result=}")
-        except Exception as e:
-            logger.error(f"Process {self.idx}: Failed to initialize default header: {str(e)}", stack_info=True)
+    def _extract_header(self, code):
+        """Extract header from code by removing comments and splitting by theorem/example"""
+        # First remove Lean comments
+        clean_code = remove_lean_comments(code)
+        
+        # Find the position of the first 'theorem' or 'example' keyword using a single regex
+        match = re.search(r'\b(theorem|example)\b', clean_code)
+        return clean_code[:match.start()].strip() if match else clean_code
     
-    def _check_header_reuse(self, code, header=None):
-        if header is None:
-            header = self.default_header
-        return code[:len(header)] == header
-
-    def _strip_header_from_code(self, code, header=None):
-        if header is None:
-            header = self.default_header
-        assert code[:len(header)] == header, "Code does not match default header"
-        return code[len(header):]
+    def _initialize_header_env(self, header):
+        """Initialize the environment for a given header"""
+        try:
+            command = dict(cmd=header, allTactics=False, ast=False, tactics=False, premises=False)
+            result = self._send_command_to_repl(command)
+            self.header_dict[header] = result['env']
+            return result['env']
+        except Exception as e:
+            logger.error(f"Process {self.idx}: Failed to initialize header: {str(e)}", stack_info=True)
+            raise e
+    
+    def _strip_header_from_code(self, code):
+        """Strip the header from the code and return the theorem/example part"""
+        # First remove Lean comments
+        clean_code = remove_lean_comments(code)
+        
+        # Find the position of the first 'theorem' or 'example' keyword using a single regex
+        match = re.search(r'\b(theorem|example)\b', clean_code)
+        return clean_code[match.start():] if match else clean_code
     
     def _send_command_to_repl(self, command: dict):
         """Send command to REPL with enhanced message framing"""
@@ -216,9 +225,10 @@ class Lean4ServerProcess(mp.Process):
             
             try:
                 response_obj = json.loads(response.decode())
+                return response_obj
             except Exception as e:
                 return {"messages": [{"data": str(e), "severity": "error"}]}
-            return response_obj
+            
         except Exception as e:
             self._cleanup_repl()
             self._initialize_repl_process()
@@ -230,15 +240,24 @@ class Lean4ServerProcess(mp.Process):
         
         if proof_aug:
             # proof_aug is only supported in Pty mode
-            
             raise NotImplementedError("ProofAug is not supported yet")
 
         try:
-            assert 'default' in self.env_cache, "Default header environment not cached"
+            header = self._extract_header(code)
             command = dict(cmd=code, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
-            if self._check_header_reuse(code):
+            
+            # Check if we already have an environment for this header
+            if header in self.header_dict:
+                # Use the cached environment
                 modified_code = self._strip_header_from_code(code)
-                command.update(env=self.env_cache['default'], cmd=modified_code)
+                command.update(env=self.header_dict[header], cmd=modified_code)
+            else:
+                # If this is a new header, initialize its environment and cache it
+                # Exception handled in _initialize_header_env
+                env = self._initialize_header_env(header)
+                modified_code = self._strip_header_from_code(code)
+                command.update(env=env, cmd=modified_code)
+            
             result = self._send_command_to_repl(command)
             
             ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
@@ -276,6 +295,7 @@ class Lean4ServerProcess(mp.Process):
     
     def _cleanup_repl(self):
         """Clean up the REPL process and pseudo-terminal using more reliable termination"""
+        # TODO: make it more reliable, fewer magic numbers
         try:
             # only cleanup if repl process is running
             if hasattr(self, 'repl_process') and self.repl_process:
@@ -315,16 +335,7 @@ class Lean4ServerProcess(mp.Process):
                     logger.error(f"Error closing master_fd: {str(e)}")
                 self.master_fd = None
             self.repl_process = None
-            
-            # Monitor file descriptor count
-            try:
-                import subprocess
-                fd_count = int(subprocess.check_output(['lsof', '-n', '-w', '-p', str(os.getpid())]).decode().count('\n'))
-                # print(f"Process {self.idx}: Current file descriptor count: {fd_count}")
-                if fd_count > 1000:  # Warning threshold
-                    logger.warning(f"Process {self.idx}: Warning - High file descriptor count: {fd_count}")
-            except Exception as e:
-                logger.error(f"Process {self.idx}: Failed to check file descriptor count: {str(e)}")
+            self.header_dict.clear()
 
     def run(self):
         """Main worker process loop - runs once per process"""
