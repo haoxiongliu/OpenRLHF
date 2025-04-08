@@ -75,7 +75,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     return result
 
 class Lean4ServerProcess(mp.Process):
-    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, default_header=LEAN4_DEFAULT_HEADER, use_pty=False, pty_restart_count=3):
+    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, default_header=None, use_pty=False, pty_restart_count=3):
         super().__init__()
         self.idx = idx
         self.task_queue = task_queue
@@ -89,7 +89,6 @@ class Lean4ServerProcess(mp.Process):
         self.lake_path = lake_path
         self.lean_workspace = lean_workspace
         self.header_dict = {}  # Dictionary to store different headers and their environments
-        self.default_header = default_header
         self.use_pty = use_pty
         self.pty_restart_count = pty_restart_count
         self.repl_process = None
@@ -124,8 +123,6 @@ class Lean4ServerProcess(mp.Process):
             )
             # Close slave fd since master process will use master_fd
             os.close(slave_fd)
-            if self.default_header:
-                self._initialize_header_env(self.default_header)
             return True
         except Exception as e:
             logger.error(f"Process {self.idx}: Failed to initialize REPL: {str(e)}", stack_info=True)
@@ -140,34 +137,29 @@ class Lean4ServerProcess(mp.Process):
         except Exception as e:
             logger.warning(f"Warning: Failed to set raw mode: {str(e)}")
     
-    def _extract_header(self, code):
-        """Extract header from code by removing comments and splitting by theorem/example"""
-        # First remove Lean comments
+    def _split_header_body(self, code):
+        """Split the code into header and body. None if no header found."""
+        # TODO: add support for more keywords, or other heuristics
         clean_code = remove_lean_comments(code)
-        
-        # Find the position of the first 'theorem' or 'example' keyword using a single regex
-        match = re.search(r'\b(theorem|example)\b', clean_code)
-        return clean_code[:match.start()].strip() if match else clean_code
+        match = re.search(r'\b(theorem|example|def|abbrev)\b', clean_code)
+        if match:
+            header, body = clean_code[:match.start()].strip(), clean_code[match.start():].strip()
+        else:
+            header, body = None, clean_code
+        return header, body
     
     def _initialize_header_env(self, header):
         """Initialize the environment for a given header"""
-        try:
-            command = dict(cmd=header, allTactics=False, ast=False, tactics=False, premises=False)
-            result = self._send_command_to_repl(command)
+        command = dict(cmd=header, allTactics=False, ast=False, tactics=False, premises=False)
+        result = self._send_command_to_repl(command)
+        if 'env' not in result:
+            messages = result.get('messages', [])   
+            logger.error(f"Process {self.idx}: Failed to initialize {header=} with {messages=}", stack_info=False)
+            return None
+        else:
             self.header_dict[header] = result['env']
             return result['env']
-        except Exception as e:
-            logger.error(f"Process {self.idx}: Failed to initialize {header=} with exception {e=}", stack_info=False)
-            return None
-    
-    def _strip_header_from_code(self, code):
-        """Strip the header from the code and return the theorem/example part"""
-        # First remove Lean comments
-        clean_code = remove_lean_comments(code)
-        
-        # Find the position of the first 'theorem' or 'example' keyword using a single regex
-        match = re.search(r'\b(theorem|example)\b', clean_code)
-        return clean_code[match.start():] if match else clean_code
+
     
     def _send_command_to_repl(self, command: dict):
         """Send command to REPL with enhanced message framing"""
@@ -243,21 +235,19 @@ class Lean4ServerProcess(mp.Process):
             raise NotImplementedError("ProofAug is not supported yet")
 
         try:
-            header = self._extract_header(code)
-            command = dict(cmd=code, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
+            header, body = self._split_header_body(code)
+            command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
             
             # Check if we already have an environment for this header
             if header in self.header_dict:
                 # Use the cached environment
-                modified_code = self._strip_header_from_code(code)
-                command.update(env=self.header_dict[header], cmd=modified_code)
-            else:
+                command.update(env=self.header_dict[header])
+            elif header:
                 # If this is a new header, initialize its environment and cache it
                 # Exception handled in _initialize_header_env
                 env = self._initialize_header_env(header)
                 if env:
-                    modified_code = self._strip_header_from_code(code)
-                    command.update(env=env, cmd=modified_code)
+                    command.update(env=env)
             
             result = self._send_command_to_repl(command)
             
@@ -347,10 +337,6 @@ class Lean4ServerProcess(mp.Process):
 
             count = 0
             while True:
-                count += 1
-                if count >= self.pty_restart_count:
-                    self._initialize_repl_process()
-                    count = 0
                 inputs = self.task_queue.get()
                 if inputs is None:
                     break
@@ -374,7 +360,10 @@ class Lean4ServerProcess(mp.Process):
                         self.request_statuses[request_id] = result
                         self.last_output_time.value = time.time()
                         self.complete_count.value += 1
-            
+                count += 1
+                if count >= self.pty_restart_count:
+                    self._initialize_repl_process()
+                    count = 0
         else:
             # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
             while True:
@@ -398,7 +387,7 @@ class Lean4ServerProcess(mp.Process):
 class Lean4ServerScheduler(ProcessScheduler):
     def __init__(self, max_concurrent_requests=64, timeout=300, memory_limit=-1, name='verifier', 
                  lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE,
-                 default_header=LEAN4_DEFAULT_HEADER, use_pty=False, pty_restart_count=3):
+                 default_header=None, use_pty=False, pty_restart_count=3):
         super().__init__(batch_size=1, name=name)
         self.use_pty = use_pty
         self.timeout = timeout
