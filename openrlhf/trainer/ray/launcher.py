@@ -1,12 +1,13 @@
 import logging
 import os
 import socket
-from typing import Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 import ray
 import torch
 from ray.util.placement_group import PlacementGroup, placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
+from tqdm import tqdm
 
 from openrlhf.models import Actor, get_llm_for_sequence_regression
 from openrlhf.trainer.ray.utils import ray_noset_visible_devices
@@ -58,6 +59,38 @@ class BasePPORole(DistributedTorchRayActor):
 
     def init_model_from_pretrained(self, *args, **kwargs):
         raise NotImplementedError()
+
+    def forward_batch(
+        self,
+        **kwargs,
+    ) -> List[Any]:
+        """Process input data by calling forward function for each item in the lists.
+
+        Args:
+            **kwargs: Input parameters in list format. Each parameter should be a list with same length.
+                     The first parameter's length determines the number of forward calls.
+
+        Returns:
+            List[Any]: List of results from forward function
+        """
+        # Get the first parameter to determine list length
+        first_param = next(iter(kwargs.values()))
+        list_length = len(first_param)
+
+        # Verify all parameters have same length
+        for param_name, param_value in kwargs.items():
+            if len(param_value) != list_length:
+                raise ValueError(f"Parameter {param_name} has length {len(param_value)}, expected {list_length}")
+
+        results = []
+        for i in tqdm(range(list_length), desc="Inference", disable=not self.strategy.is_rank_0()):
+            # Create kwargs for single item
+            sample_kwargs = {param_name: param_value[i] for param_name, param_value in kwargs.items()}
+
+            result = self.forward(**sample_kwargs)
+            results.append(result)
+
+        return results
 
 
 @ray.remote(num_gpus=1)

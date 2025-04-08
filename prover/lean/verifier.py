@@ -157,8 +157,8 @@ class Lean4ServerProcess(mp.Process):
             self.header_dict[header] = result['env']
             return result['env']
         except Exception as e:
-            logger.error(f"Process {self.idx}: Failed to initialize header: {str(e)}", stack_info=True)
-            raise e
+            logger.error(f"Process {self.idx}: Failed to initialize {header=} with exception {e=}", stack_info=False)
+            return None
     
     def _strip_header_from_code(self, code):
         """Strip the header from the code and return the theorem/example part"""
@@ -255,8 +255,9 @@ class Lean4ServerProcess(mp.Process):
                 # If this is a new header, initialize its environment and cache it
                 # Exception handled in _initialize_header_env
                 env = self._initialize_header_env(header)
-                modified_code = self._strip_header_from_code(code)
-                command.update(env=env, cmd=modified_code)
+                if env:
+                    modified_code = self._strip_header_from_code(code)
+                    command.update(env=env, cmd=modified_code)
             
             result = self._send_command_to_repl(command)
             
