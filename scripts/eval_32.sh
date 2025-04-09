@@ -6,6 +6,7 @@ name=$1 # 0319-n4-nokl
 num_gpus=${2:-4} # Default to 4 GPUs if not specified
 num_cpus=${3:-48} # Default to 24 CPUs if not specified
 n=${4:-32}
+memory_util=${5:-0.9}
 ckpt_root=checkpoints/ckpts/$name
 tgt_root=results/minif2f/$name
 for ckpt_dir in $(ls -1d $ckpt_root/*/); do
@@ -31,7 +32,7 @@ for ckpt_dir in $(ls -1d $ckpt_root/*/); do
 	    --use_pty
         --memory_limit 10
         --timeout 300
-        --gpu_memory_utilization 0.9
+        --gpu_memory_utilization $memory_util
     )
     echo "Evaluating $name/$tag for pass@32"
     python eval_pipeline.py "${eval_args[@]}"

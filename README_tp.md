@@ -1,0 +1,3 @@
+This repo is based on OpenRLHF, integrated with a modified prover module of DeepSeek-Prover-V1.5(and Goedel-Prover) as the source of reward.
+
+Currently there is a bug to build with lean-v4.16.0 of mathlib4. You have to manually remove the proofwidgets package then call lake build again (due to package-lock.json). I am not sure whether this does not break other things. Also, in order to use Smt, you should also change the import 
