@@ -9,19 +9,27 @@ from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code, get_semi_proofs
 from prover.logger import logger
-
+import random
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
-async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3):
+async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, 
+        use_pty=False, pty_restart_count=3, random_order=False):
     lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count)
     tasks = [{
             "code": code,
             "ast": ast,
             "tactics": tactics
         } for code in codes]
+    indexed_tasks = list(enumerate(tasks))
+    if random_order:
+        random.shuffle(indexed_tasks)
+    indices, shuffled_tasks = zip(*indexed_tasks) if indexed_tasks else ([], [])
     try:
-        request_id_list = lean4_scheduler.submit_all_request(tasks)
+        request_id_list = lean4_scheduler.submit_all_request(shuffled_tasks)
         outputs_list = await lean4_scheduler.async_get_all_request_outputs(request_id_list)
+        if random_order:
+            output_map = {idx: output for idx, output in zip(indices, outputs_list)}
+            outputs_list = [output_map[i] for i in range(len(codes))]
         return outputs_list
     except Exception as e:
         logger.error(f"Error compiling codes: {e}")
@@ -120,7 +128,7 @@ def main(args):
     
     print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
-        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count))
+        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count, args.random_order))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -168,6 +176,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_pty', action='store_true', default=False)
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pty_restart_count', default=3, type=int)
+    parser.add_argument('--random_order', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
     main(args)

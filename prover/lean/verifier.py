@@ -135,8 +135,9 @@ class Lean4ServerProcess(mp.Process):
             attrs[3] = attrs[3] & ~(termios.ECHO | termios.ICANON)
             termios.tcsetattr(fd, termios.TCSANOW, attrs)
         except Exception as e:
-            logger.warning(f"Warning: Failed to set raw mode: {str(e)}")
-    
+            logger.error(f"Warning: Failed to set raw mode: {str(e)}")
+            raise e
+
     def _split_header_body(self, code):
         """Split the code into header and body. None if no header found."""
         # TODO: add support for more keywords, or other heuristics
@@ -157,7 +158,7 @@ class Lean4ServerProcess(mp.Process):
         result = self._send_command_to_repl(command)
         if 'env' not in result:
             messages = result.get('messages', [])   
-            logger.error(f"Process {self.idx}: Failed to initialize {header=} with {messages=}", stack_info=False)
+            logger.debug(f"Process {self.idx}: Failed to initialize {header=} with {messages=}", stack_info=False)
             return None
         else:
             self.header_dict[header] = result['env']
@@ -343,7 +344,7 @@ class Lean4ServerProcess(mp.Process):
                         if ret_code == 134:
                             logger.debug(f"REPL process died with code {ret_code}, restarting, most probably due to memory limit")
                         else:
-                            logger.error(f"REPL process died with code {ret_code}, unknown cause")
+                            logger.warning(f"REPL process died with code {ret_code}, unknown cause")
                         if not self._clean_init_repl():
                             raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
                     if isinstance(task, str):
