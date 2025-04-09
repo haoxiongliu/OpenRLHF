@@ -118,10 +118,19 @@ def main(args):
             extended_codes = set()
             for code in codes:
                 semi_proofs = get_semi_proofs(code, block_threshold=10)
-                # omni_tactic = r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
-                omni_tactic = r"hint"
-                subst_proofs = [code.replace('sorry', omni_tactic) for code in semi_proofs]
-                extended_codes.update(subst_proofs)
+                if args.hammer_type in ['smt', 'hint', 'my_hint']:
+                    hint_dict = {
+                        'smt': r"smt",
+                        'hint': r"hint",
+                        'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
+                    }
+                    omni_tactic = hint_dict[args.hammer_type]
+                    subst_proofs = [code.replace('sorry', omni_tactic) for code in semi_proofs]
+                    extended_codes.update(subst_proofs)
+                elif args.hammer_type == 'smt+aster':
+                    raise NotImplementedError("smt+aster i.e. smt [*] is not implemented yet")
+                else:
+                    raise ValueError(f"Invalid hammer type: {args.hammer_type}")
             to_inference_codes += [{"name": name, "code": code} for code in extended_codes]
 
     codes = [code["code"] for code in to_inference_codes]
@@ -161,7 +170,7 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output_dir', type=str, required=True)
     parser.add_argument('-s', '--split', default=None, type=str)
     parser.add_argument('-n', '--n', default=32, type=int)
-    parser.add_argument('-c', '--cpu', default=64, type=int)
+    parser.add_argument('-c', '--cpu', default=24, type=int)
     parser.add_argument('-g', '--gpu', default=1, type=int)
     parser.add_argument('-f', '--field', default="complete", choices=["complete", "pass"], type=str)
     parser.add_argument('--memory_limit', default=10, type=float)
@@ -171,12 +180,14 @@ if __name__ == "__main__":
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
     parser.add_argument('--use_existing_code', type=str, default=None)
+    parser.add_argument('--hammer_type', type=str, default='my_hint', choices=['smt', 'smt+aster', 'hint', 'my_hint'])
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
     parser.add_argument('--use_pty', action='store_true', default=False)
     parser.add_argument('--proofaug', action='store_true', default=False)
-    parser.add_argument('--pty_restart_count', default=3, type=int)
+    parser.add_argument('--pty_restart_count', default=100, type=int)
     parser.add_argument('--random_order', action='store_true', default=False)
+
     args = parser.parse_args()
     print(args)
     main(args)

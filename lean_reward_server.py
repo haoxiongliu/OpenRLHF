@@ -8,9 +8,9 @@ import datetime
 import uuid
 import asyncio
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Annotated
 import uvicorn
 from contextlib import asynccontextmanager
 import random
@@ -65,18 +65,23 @@ def create_app(config: RewardConfig) -> FastAPI:
     app = FastAPI(lifespan=lifespan)
     app.state.config = config
     
+    def get_config(request: Request) -> RewardConfig:
+        return request.app.state.config
+
     @app.post("/reward")
-    async def get_reward(reward_request: RewardRequest, request: Request):
+    async def get_reward(
+        reward_request: RewardRequest,
+        config: Annotated[RewardConfig, Depends(get_config)]
+    ):
         request_id = str(uuid.uuid4())[:8]
         logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
 
         codes = [extract_code(query) for query in reward_request.queries]
-        conf = request.app.state.config
-        verification_request_ids = conf.scheduler.submit_all_request(codes)
-        verification_results = await conf.scheduler.async_get_all_request_outputs(verification_request_ids)
+        verification_request_ids = config.scheduler.submit_all_request(codes)
+        verification_results = await config.scheduler.async_get_all_request_outputs(verification_request_ids)
         rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
 
-        if conf.debug:
+        if config.debug:
             i = random.randint(0, len(reward_request.queries) - 1)
             debug_dict = {
                 "query": reward_request.queries[i],
@@ -99,13 +104,13 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=5000, help="Server port")
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
-    parser.add_argument("--timeout", type=int, default=120, help="Verification timeout (seconds)")
-    parser.add_argument("--max_concurrent", "-n", type=int, default=32, help="Maximum concurrent verification requests")
+    parser.add_argument("--timeout", type=int, default=60, help="DO NOT USE THIS SCRIPT FOR EVALUATION. Low timeout to encourage fast verification.")
+    parser.add_argument("-n", "--max_concurrent", type=int, default=24, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     parser.add_argument("--use_pty", action="store_true", help="Use pty mode")
-    parser.add_argument("--pty_restart_count", type=int, default=10, help="Pty restart count")
+    parser.add_argument("--pty_restart_count", type=int, default=100, help="Pty restart count")
     args = parser.parse_args()
     
     log_level = logging.DEBUG if args.debug else logging.INFO
