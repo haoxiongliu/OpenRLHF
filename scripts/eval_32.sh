@@ -7,6 +7,7 @@ num_gpus=${2:-4} # Default to 4 GPUs if not specified
 num_cpus=${3:-48} # Default to 24 CPUs if not specified
 n=${4:-32}
 memory_util=${5:-0.9}
+echo "memory_util: $memory_util"
 ckpt_root=checkpoints/ckpts/$name
 tgt_root=results/minif2f/$name
 for ckpt_dir in $(ls -1d $ckpt_root/*/); do

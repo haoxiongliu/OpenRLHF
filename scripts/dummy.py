@@ -54,7 +54,7 @@ class GPUMonitor:
             while not self.stop_event.is_set():
                 util = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
                 # control_queue.put((gpu_idx, util))
-                if util < 50:
+                if util < 30:
                     low_util_count += 1
                 else:
                     low_util_count = 0
@@ -66,7 +66,7 @@ class GPUMonitor:
                     else:
                         self.logger.info(f"GPU {gpu_idx} Current Utilization: {util}%")
                 else: # pause not set
-                    if util > 80:
+                    if util > 60:
                         pause_event.set()
                         self.logger.info(f"GPU {gpu_idx}: Paused dummy work ({util=}%)")
                     else:
