@@ -78,7 +78,7 @@ def main(args):
         with open(args.input_path, 'r') as file:
             for line in file:
                 data = json.loads(line)
-                if args.split == "none" or (data["split"] == args.split):
+                if args.split is None or (data["split"] == args.split):
                     data_list.append(data)
 
         model_inputs = []
@@ -159,9 +159,10 @@ def main(args):
         f.write(f"{result}\n")
     with open(summary_path, "w") as f:
         json.dump(result, f)
+    
+    df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
     print(result)
 
-    df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
