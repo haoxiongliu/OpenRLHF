@@ -10,6 +10,8 @@ from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code, get_semi_proofs
 from prover.logger import logger
 import random
+import torch
+
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
 async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, 
@@ -94,7 +96,9 @@ def main(args):
 
         sampling_params = SamplingParams(temperature=args.temperature, max_tokens=2048, top_p=0.95, n=args.n)
         model_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
-
+        del model
+        torch.cuda.empty_cache()
+        
         to_inference_codes = []
         os.makedirs(args.output_dir, exist_ok=True)
         for i in range(len(data_list)):
