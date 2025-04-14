@@ -19,7 +19,7 @@ for ckpt_dir in $(ls -1d $ckpt_root/*/); do
     tgt_dir=$tgt_root/$tag-n$n
     # if exist $tgt_dir/compilation_summary.csv, skip
     if [ -f $tgt_dir/compilation_summary.csv ]; then
-        echo "skip $name/$tag"
+        # echo "skip $name/$tag"
         continue
     fi
     eval_args=(
