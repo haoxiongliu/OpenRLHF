@@ -1,6 +1,7 @@
 [submodule "mathlib4"]
 	path = mathlib4
 	url = https://github.com/haoxiongliu/mathlib4.git
+	branch = dev-viv
 
 [submodule "repl"]
 	path = repl

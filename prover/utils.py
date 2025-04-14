@@ -305,28 +305,6 @@ def get_semi_proofs(result: dict | str, block_threshold: int = 10) -> list[str]:
     
     return semi_proofs
 
-
-
-def compare_compilation_summaries(
-        pa_path="results/minif2f/DeepSeek-Prover-V1.5-RL-n1-pa", 
-        ref_path="results/minif2f/DeepSeek-Prover-V1.5-RL-n1"
-    ):
-    """served for current version of proofaug 0329"""
-    # Load the two compilation summary CSV files
-    summary_pa = pd.read_csv(f'{pa_path}/compilation_summary.csv', delimiter='\t')
-    summary_f2f = pd.read_csv(f'{ref_path}/compilation_summary.csv', delimiter='\t')
-
-    # Merge the two dataframes on the 'name' column
-    merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
-
-    # Find the pa correct but f2f incorrect
-    merged_summary['difference'] = (merged_summary['correct_pa'] > 0) & (merged_summary['correct_f2f'] == 0)
-
-    # Filter the results to show only the differences
-    differences = merged_summary['difference']
-    print(f"{pa_path} correct but {ref_path} incorrect:\n {differences.sum()}")
-    return differences
-
 def smt_aster(semi_proof: str) -> str:
     """
     Replace sorrries with smt [h0, h1, ...]
@@ -345,4 +323,33 @@ def smt_aster(semi_proof: str) -> str:
         code = code[:idx] + tactic + code[idx+len('sorry'):]
 
     return code
+
+def compare_compilation_summaries(
+        pa_name="DeepSeek-Prover-V1.5-RL-n1-pa", 
+        ref_name="DeepSeek-Prover-V1.5-RL-n1"
+    ):
+    """served for current version of proofaug 0329"""
+    # Load the two compilation summary CSV files
+    summary_pa = pd.read_csv(f'results/minif2f/{pa_name}/compilation_summary.csv', delimiter='\t')
+    summary_f2f = pd.read_csv(f'results/minif2f/{ref_name}/compilation_summary.csv', delimiter='\t')
+
+    # Merge the two dataframes on the 'name' column
+    merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
+
+    # Find the pa correct but f2f incorrect
+    merged_summary['difference'] = (merged_summary['correct_pa'] > 0) & (merged_summary['correct_f2f'] == 0)
+
+    # Filter the results to show only the differences
+    differences = merged_summary['difference']
+    print(f"{pa_name} correct but {ref_name} incorrect:\n {differences.sum()}")
+    return differences
+
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pa_name", type=str, default="DeepSeek-Prover-V1.5-RL-n1-pa")
+    parser.add_argument("--ref_name", type=str, default="DeepSeek-Prover-V1.5-RL-n1")
+    args = parser.parse_args()
+    compare_compilation_summaries(args.pa_name, args.ref_name)
+
 
