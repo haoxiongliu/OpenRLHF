@@ -7,16 +7,20 @@ import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, get_semi_proofs
+from prover.utils import extract_code, get_semi_proofs, smt_aster
 from prover.logger import logger
 import random
 import torch
 
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
+DEFAULT_LEAN_WORKSPACE = 'repl/'
 
-async def compile_codes(codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, 
-        use_pty=False, pty_restart_count=3, random_order=False):
-    lean4_scheduler = Lean4ServerScheduler(max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count)
+async def compile_codes(
+    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE
+):
+    lean4_scheduler = Lean4ServerScheduler(
+        max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace
+    )
     tasks = [{
             "code": code,
             "ast": ast,
@@ -86,8 +90,11 @@ def main(args):
         model_inputs = []
         for data in data_list:
             format_str = "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}"
+            header = LEAN4_DEFAULT_HEADER
+            if args.proofaug and 'smt' in args.hammer_type:
+                header = "import Smt\nimport Smt.Real\n" + header
             model_inputs.append(format_str.format(
-                header=data.get('header', LEAN4_DEFAULT_HEADER),
+                header=header,
                 informal_prefix=data.get('informal_prefix', str()),
                 formal_statement=data['formal_statement'],
             ))
@@ -121,6 +128,8 @@ def main(args):
         for name, codes in name_to_codes.items():
             extended_codes = set()
             for code in codes:
+                if args.proofaug and 'smt' in args.hammer_type:
+                    code = "import Smt\nimport Smt.Real\n" + code
                 semi_proofs = get_semi_proofs(code, block_threshold=10)
                 if args.hammer_type in ['smt', 'hint', 'my_hint']:
                     hint_dict = {
@@ -131,8 +140,10 @@ def main(args):
                     omni_tactic = hint_dict[args.hammer_type]
                     subst_proofs = [code.replace('sorry', omni_tactic) for code in semi_proofs]
                     extended_codes.update(subst_proofs)
-                elif args.hammer_type == 'smt+aster':
-                    raise NotImplementedError("smt+aster i.e. smt [*] is not implemented yet")
+                elif args.hammer_type == 'smt_aster':
+                    for semi_proof in semi_proofs:
+                        subst_proof = smt_aster(semi_proof)
+                        extended_codes.add(subst_proof)
                 else:
                     raise ValueError(f"Invalid hammer type: {args.hammer_type}")
             to_inference_codes += [{"name": name, "code": code} for code in extended_codes]
@@ -141,7 +152,7 @@ def main(args):
     
     print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
-        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count, args.random_order))
+        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -185,13 +196,14 @@ if __name__ == "__main__":
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
     parser.add_argument('--use_existing_code', type=str, default=None)
-    parser.add_argument('--hammer_type', type=str, default='my_hint', choices=['smt', 'smt+aster', 'hint', 'my_hint'])
+    parser.add_argument('--hammer_type', type=str, default='my_hint', choices=['smt', 'smt_aster', 'hint', 'my_hint'])
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
     parser.add_argument('--use_pty', action='store_true', default=False)
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pty_restart_count', default=100, type=int)
     parser.add_argument('--random_order', action='store_true', default=False)
+    parser.add_argument('--lean_workspace', type=str, default='repl/')
 
     args = parser.parse_args()
     print(args)

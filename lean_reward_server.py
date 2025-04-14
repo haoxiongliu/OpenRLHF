@@ -19,7 +19,9 @@ from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code
 
 # Setup logging
-
+HOME_DIR = os.path.expanduser('~')
+DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
+DEFAULT_LEAN_WORKSPACE = 'repl/'
 logger = logging.getLogger("lean_reward_server")
 
 class RewardRequest(BaseModel):
@@ -36,8 +38,8 @@ class RewardConfig:
                  memory_limit: float = 5,
                  debug: bool = False,
                  use_pty: bool = False):
-        self.lake_path = lake_path or os.path.expanduser('~/.elan/bin/lake')
-        self.lean_workspace = lean_workspace or 'mathlib4/'
+        self.lake_path = lake_path or DEFAULT_LAKE_PATH
+        self.lean_workspace = lean_workspace or DEFAULT_LEAN_WORKSPACE
         self.timeout = timeout
         self.max_concurrent_requests = max_concurrent_requests
         self.memory_limit = memory_limit

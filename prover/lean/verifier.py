@@ -23,7 +23,7 @@ from prover.utils import remove_lean_comments
 
 HOME_DIR = os.path.expanduser('~')
 DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
-DEFAULT_LEAN_WORKSPACE = 'mathlib4/'
+DEFAULT_LEAN_WORKSPACE = 'repl/'
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
 
@@ -407,7 +407,7 @@ class Lean4ServerScheduler(ProcessScheduler):
         ]
         for p in self.processes:
             p.start()
-        logger.info(f'Launched {len(self.processes)} LeanServerProcesses')
+        logger.info(f'Launched {len(self.processes)} LeanServerProcesses in {lean_workspace}')
 
         self._running_monitor = mp.Value(ctypes.c_bool, True)
         self._last_complete_count = mp.Value(ctypes.c_int, 0)

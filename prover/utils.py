@@ -122,21 +122,38 @@ class ConcurrentJob(object):
             self._stage_cache = status
 
 
-def remove_lean_comments(code: str) -> str:
+def remove_lean_comments(code: str, normalize: bool = False) -> str:
     """
     Remove all Lean comments from the given code.
     This function removes both single-line comments (starting with '--')
     and block comments delimited by '/-' and '-/'.
+    If normalize is set, make theorem ... :=  into one line.
     """
     # Remove block comments (which may span multiple lines)
-    code_without_block = re.sub(r'/\-.*?\-/', '', code, flags=re.DOTALL)
+    code_wo_comment = re.sub(r'/\-.*?\-/', '', code, flags=re.DOTALL)
     # Remove single-line comments
-    code_without_line = re.sub(r'--.*', '', code_without_block)
+    code_wo_comment = re.sub(r'--.*', '', code_wo_comment)
+    if normalize:
+        # Remove all newlines between 'theorem' and ':='
+        # First, find all 'theorem' declarations
+        theorem_pattern = re.compile(r'(theorem\s+.*?)(:=)', re.DOTALL)
+        
+        def replace_newlines(match):
+            # Replace all newlines with spaces in the matched group
+            theorem_text = match.group(1)
+            theorem_text = re.sub(r'\n\s*', ' ', theorem_text)
+            return theorem_text + match.group(2)
+        
+        # Apply the replacement
+        code_wo_comment = theorem_pattern.sub(replace_newlines, code_wo_comment)
+
     # Clean up: strip trailing spaces and remove any empty lines
-    lines = [line.rstrip() for line in code_without_line.splitlines()]
+    lines = [line.rstrip() for line in code_wo_comment.splitlines()]
+
+
     return "\n".join(line for line in lines if line.strip())
 
-
+# TODO: make it legacy. do not rely on line analysis
 def is_statement(line: str) -> bool:
     return line.strip().startswith("have") or line.startswith("theorem")
 
@@ -209,7 +226,7 @@ def get_semi_proofs(result: dict | str, block_threshold: int = 10) -> list[str]:
         if complete:
             return [code]
     
-    code = remove_lean_comments(code)
+    code = remove_lean_comments(code, normalize=True)
     # 1. find the have...by... blocks, end by indentation
     blocks = find_blocks(code)
     # find all maximal non-overlapping block combinations
@@ -274,30 +291,26 @@ def get_semi_proofs(result: dict | str, block_threshold: int = 10) -> list[str]:
         modified_lines = deepcopy(lines)  # Create a copy to modify
         # Process blocks in reverse order to prevent line number shifts
         for start, end in sorted(combination, key=lambda x: x[0], reverse=True):
-            # Modify the start line to replace after 'by' with 'sorry'
             original_line = modified_lines[start]
+            # need check
             modified_line = re.sub(r'(.*?\bby\b).*', r'\1 sorry', original_line)
             modified_lines[start] = modified_line
-            # Remove subsequent lines of the block
             del modified_lines[start+1 : end+1]
-        # Join the modified lines to form the semi-proof
         semi_proof = '\n'.join(modified_lines)
         semi_proofs.append(semi_proof)
     
-
-
     return semi_proofs
 
 
 
 def compare_compilation_summaries(
-        ref="DeepSeek-Prover-V1.5-RL-n1-pa", 
-        incre="DeepSeek-Prover-V1.5-RL-n1"
+        pa_path="results/minif2f/DeepSeek-Prover-V1.5-RL-n1-pa", 
+        ref_path="results/minif2f/DeepSeek-Prover-V1.5-RL-n1"
     ):
     """served for current version of proofaug 0329"""
     # Load the two compilation summary CSV files
-    summary_pa = pd.read_csv(f'results/minif2f/{ref}/compilation_summary.csv', delimiter='\t')
-    summary_f2f = pd.read_csv(f'results/minif2f/{incre}/compilation_summary.csv', delimiter='\t')
+    summary_pa = pd.read_csv(f'{pa_path}/compilation_summary.csv', delimiter='\t')
+    summary_f2f = pd.read_csv(f'{ref_path}/compilation_summary.csv', delimiter='\t')
 
     # Merge the two dataframes on the 'name' column
     merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
@@ -307,6 +320,25 @@ def compare_compilation_summaries(
 
     # Filter the results to show only the differences
     differences = merged_summary['difference']
-    print(f"total {ref} correct but {incre} incorrect:\n {differences.sum()}")
+    print(f"{pa_path} correct but {ref_path} incorrect:\n {differences.sum()}")
     return differences
+
+def smt_aster(semi_proof: str) -> str:
+    """
+    Replace sorrries with smt [h0, h1, ...]
+    """
+    hypo_candidates = ["h" + str(i) for i in range(10)] + ["h" + chr(0x2080 + i) for i in range(10)]
+    code = deepcopy(semi_proof)
+    while True:
+        idx = code.find('sorry')
+        if idx == -1:
+            break
+        hypo_list = [hypo for hypo in hypo_candidates if hypo in code[:idx]]
+        tactic = "smt"
+        if len(hypo_list) > 0:
+            hypos = " ,".join(hypo_list)
+            tactic = "smt [" + hypos + "]"
+        code = code[:idx] + tactic + code[idx+len('sorry'):]
+
+    return code
 

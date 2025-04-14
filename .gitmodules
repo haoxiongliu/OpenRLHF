@@ -1,4 +1,9 @@
 [submodule "mathlib4"]
 	path = mathlib4
 	url = https://github.com/haoxiongliu/mathlib4.git
-	branch = dev_416
+	branch = deepseek
+
+[submodule "repl"]
+	path = repl
+	url = https://github.com/haoxiongliu/repl.git
+	branch = dev-viv
