@@ -5,3 +5,4 @@
 [submodule "repl"]
 	path = repl
 	url = https://github.com/haoxiongliu/repl.git
+	branch = dev-viv
