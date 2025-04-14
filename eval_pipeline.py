@@ -7,19 +7,16 @@ import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, get_semi_proofs, smt_aster
+from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH
 from prover.logger import logger
 import random
 import torch
-
-LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
-DEFAULT_LEAN_WORKSPACE = 'repl/'
 
 async def compile_codes(
     codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE
 ):
     lean4_scheduler = Lean4ServerScheduler(
-        max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace
+        max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH
     )
     tasks = [{
             "code": code,

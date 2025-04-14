@@ -16,12 +16,8 @@ from contextlib import asynccontextmanager
 import random
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code
+from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE
 
-# Setup logging
-HOME_DIR = os.path.expanduser('~')
-DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
-DEFAULT_LEAN_WORKSPACE = 'repl/'
 logger = logging.getLogger("lean_reward_server")
 
 class RewardRequest(BaseModel):
