@@ -200,7 +200,7 @@ if __name__ == "__main__":
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pty_restart_count', default=100, type=int)
     parser.add_argument('--random_order', action='store_true', default=False)
-    parser.add_argument('--lean_workspace', type=str, default='repl/')
+    parser.add_argument('--lean_workspace', type=str, default='mathlib4/')
 
     args = parser.parse_args()
     print(args)
