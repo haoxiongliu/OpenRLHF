@@ -11,6 +11,7 @@ from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_
 from prover.logger import logger
 import random
 import torch
+from transformers import AutoTokenizer
 
 async def compile_codes(
     codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE
@@ -85,20 +86,53 @@ def main(args):
                     data_list.append(data)
 
         model_inputs = []
+        tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
         for data in data_list:
-            format_str = "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}"
-            header = LEAN4_DEFAULT_HEADER
+            header = data.get('header', LEAN4_DEFAULT_HEADER)
             if args.proofaug and 'smt' in args.hammer_type:
                 header = "import Smt\nimport Smt.Real\n" + header
-            model_inputs.append(format_str.format(
-                header=header,
-                informal_prefix=data.get('informal_prefix', str()),
-                formal_statement=data['formal_statement'],
-            ))
+            formal_statement = data['formal_statement']
+            informal_prefix = data.get('informal_prefix', str())
+            if args.kimina_prompt:
+                
+                if informal_prefix:
+                    if m:= re.match(r"/--(.*?)--/", informal_prefix.strip(), re.DOTALL):
+                        problem = m.group(1)
+                    else:
+                        problem = informal_prefix.strip()
+                else:
+                    problem = 'N/A'
+                prompt = "Think about and solve the following problem step by step in Lean 4."
+                prompt += f"\n# Problem: {problem}"
+                prompt += f"\n# Formal statement:\n```lean4\n{header}{formal_statement}\n```\n"
+                messages = [
+                    {"role": "system", "content": "You are an expert in mathematics and Lean 4."},
+                    {"role": "user", "content": prompt}
+                ]
+                text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                model_inputs.append(text)
+            else:
+                model_inputs.append(f"Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}")
 
-        model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=4096, gpu_memory_utilization=args.gpu_memory_utilization)
-
-        sampling_params = SamplingParams(temperature=args.temperature, max_tokens=2048, top_p=0.95, n=args.n)
+        # find the max length of the model input
+        def get_num_tokens(text):
+            return len(tokenizer.encode(text))
+        max_input_tokens = max([get_num_tokens(input) for input in model_inputs])
+        if args.estimate_max_tokens:
+            max_model_len = args.max_model_len
+            max_tokens = max_model_len - max_input_tokens
+            logger.info(f"{max_model_len=}, {max_input_tokens=}, {args.estimate_max_tokens=} so we set {max_tokens=}")
+        else:
+            max_tokens = args.max_tokens
+            max_model_len = max_tokens + max_input_tokens
+            logger.info(f"{max_tokens=}, {max_input_tokens=}, {args.estimate_max_tokens=} so we set {max_model_len=}")
+        sampling_params = SamplingParams(temperature=args.temperature, max_tokens=max_tokens, top_p=0.95, n=args.n)
+        
+        model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=max_model_len, gpu_memory_utilization=args.gpu_memory_utilization)
         model_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
         del model
         torch.cuda.empty_cache()
@@ -108,7 +142,8 @@ def main(args):
         for i in range(len(data_list)):
             data_list[i]["model_input"] = model_inputs[i]
             data_list[i]["model_outputs"] = [output.text for output in model_outputs[i].outputs]
-            data_list[i]["full_code"] = [extract_code(model_inputs[i] + output.text, strict=False) for output in model_outputs[i].outputs]
+            extract_prefix = str() if args.kimina_prompt else model_inputs[i]
+            data_list[i]["full_code"] = [extract_code(extract_prefix + output.text, strict=True) for output in model_outputs[i].outputs]
             name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]
             to_inference_codes += [{"name": name, "code": code} for code in data_list[i]["full_code"]]
             
@@ -186,6 +221,11 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--cpu', default=24, type=int)
     parser.add_argument('-g', '--gpu', default=1, type=int)
     parser.add_argument('-f', '--field', default="complete", choices=["complete", "pass"], type=str)
+    parser.add_argument('--max_tokens', default=2048, type=int)
+    parser.add_argument('--estimate_max_tokens', action='store_true', default=False, help="when set, use max_model_len to deduce max_tokens, otherwise reversely.")
+    parser.add_argument('--max_model_len', default=4096, type=int)
+    parser.add_argument('--kimina_prompt', action='store_true', default=False)
+    parser.add_argument('--seed', default=1, type=int)
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
     parser.add_argument('--timeout', default=300, type=int)
