@@ -88,7 +88,7 @@ def extract_code(text: str, strict: bool = False) -> str:
     code = None
     if m:= re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL):
         code = m.group(1)   
-    elif m:= re.search(r'```\S*\n(.*)', text, re.DOTALL):
+    elif m:= re.search(r'```lean\S*\n(.*)', text, re.DOTALL):
         if strict:
             code = "[[Code no end.]]"
         else:
@@ -134,7 +134,7 @@ def remove_lean_comments(code: str, normalize: bool = False) -> str:
     and block comments delimited by '/-' and '-/'.
     If normalize is set, make theorem ... :=  into one line.
     """
-    # Remove block comments (which may span multiple lines)
+    # TODO: nested block comments? currently no need.
     code_wo_comment = re.sub(r'/\-.*?\-/', '', code, flags=re.DOTALL)
     # Remove single-line comments
     code_wo_comment = re.sub(r'--.*', '', code_wo_comment)
@@ -154,13 +154,12 @@ def remove_lean_comments(code: str, normalize: bool = False) -> str:
 
     # Clean up: strip trailing spaces and remove any empty lines
     lines = [line.rstrip() for line in code_wo_comment.splitlines()]
-
-
     return "\n".join(line for line in lines if line.strip())
 
 # TODO: make it legacy. do not rely on line analysis
 def is_statement(line: str) -> bool:
-    return line.strip().startswith("have") or line.startswith("theorem")
+    keywords = ["have", "theorem", "example", "def exercise"]
+    return any(line.strip().startswith(kw) for kw in keywords)
 
 
 def find_blocks(code: str) -> list[tuple[int, int]]:

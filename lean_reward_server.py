@@ -82,7 +82,8 @@ def create_app(config: RewardConfig) -> FastAPI:
         if config.debug:
             i = random.randint(0, len(reward_request.queries) - 1)
             debug_dict = {
-                "query": reward_request.queries[i],
+                # "query": reward_request.queries[i],
+                "code": codes[i],
                 "reward": rewards[i],
                 "errors": verification_results[i].get("errors", []),
             }

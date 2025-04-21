@@ -20,7 +20,7 @@ from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
 from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE
-
+from prover.lean.psa import ProposalStructure
 
 def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
                       verbose=False, timeout=300, allTactics=False, ast=False, premises=False, tactics=False):
@@ -70,7 +70,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     return result
 
 class Lean4ServerProcess(mp.Process):
-    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, default_header=None, use_pty=False, pty_restart_count=3):
+    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, default_header=None, use_pty=False, pty_restart_count=100):
         super().__init__()
         self.idx = idx
         self.task_queue = task_queue
@@ -224,12 +224,23 @@ class Lean4ServerProcess(mp.Process):
             self._clean_init_repl()
             return {"messages": [{"data": str(e), "severity": "error"}]}
     
-    def _verify_lean4_with_persistent_repl(self, code: str, allTactics: bool=False, ast: bool=False, premises: bool=False, tactics: bool=False, proof_aug: bool=False):
+    def _verify_lean4_with_persistent_repl(
+        self, 
+        code: str, 
+        allTactics: bool=False, 
+        ast: bool=False, 
+        premises: bool=False, 
+        tactics: bool=False, 
+        proof_aug: bool=False,
+    ):
         start_time = time.time()
         system_messages = ''
         
         if proof_aug:
-            # proof_aug is only supported in Pty mode
+            assert self.use_pty, "ProofAug is only supported in Pty mode"
+            header, body = self._split_header_body(code)
+            context_num_line = len(header.split('\n'))
+            proposal_structure = ProposalStructure(code)
             raise NotImplementedError("ProofAug is not supported yet")
 
         try:
@@ -254,6 +265,8 @@ class Lean4ServerProcess(mp.Process):
                 "system_messages": system_messages,
                 "system_errors": None,
                 "ast": ast_results,
+                "header": header,
+                "body": body
                 # "verified_code": code,  # Keep original code for reference
             }
             verification_result['pass'] = not verification_result['errors']
@@ -344,8 +357,7 @@ class Lean4ServerProcess(mp.Process):
                             raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
                     if isinstance(task, str):
                         task = dict(code=task)
-                    elif not isinstance(task, dict):
-                        raise Exception(f"Process {self.idx}: Invalid task type {type(task)}, skipping")
+                    # please refer to the list of arguments in _verify_lean4_with_persistent_repl method
                     result = self._verify_lean4_with_persistent_repl(**task)
 
                     with self.lock:
@@ -356,8 +368,8 @@ class Lean4ServerProcess(mp.Process):
                 if count >= self.pty_restart_count:
                     self._clean_init_repl()
                     count = 0
-        else:
-            # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
+            self._cleanup_repl()
+        else:   # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
             while True:
                 inputs = self.task_queue.get()
                 if inputs is None:
@@ -365,21 +377,19 @@ class Lean4ServerProcess(mp.Process):
                 for _, request_id, task in inputs:
                     if isinstance(task, str):
                         task = dict(code=task)
-                    if 'timeout' not in task:
-                        task['timeout'] = self.timeout
                     # Directly call verify_lean4_file without any REPL state or header mechanism
-                    result = verify_lean4_file(code=task['code'], lake_path=self.lake_path, lean_workspace=self.lean_workspace, timeout=self.timeout, allTactics=task.get('allTactics', False), ast=task.get('ast', False), premises=task.get('premises', False), tactics=task.get('tactics', False))
+                    result = verify_lean4_file(code=task['code'], lake_path=self.lake_path, lean_workspace=self.lean_workspace, timeout=task.get('timeout', self.timeout), allTactics=task.get('allTactics', False), ast=task.get('ast', False), premises=task.get('premises', False), tactics=task.get('tactics', False))
                     with self.lock:
                         self.request_statuses[request_id] = result
                         self.last_output_time.value = time.time()
                         self.complete_count.value += 1
 
-        self._cleanup_repl()
+        
 
 class Lean4ServerScheduler(ProcessScheduler):
     def __init__(self, max_concurrent_requests=64, timeout=300, memory_limit=-1, name='verifier', 
                  lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE,
-                 default_header=None, use_pty=False, pty_restart_count=3):
+                 default_header=None, use_pty=False, pty_restart_count=100):
         super().__init__(batch_size=1, name=name)
         self.use_pty = use_pty
         self.timeout = timeout

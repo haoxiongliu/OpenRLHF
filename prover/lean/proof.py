@@ -16,18 +16,18 @@ class Proof(object):
     
     @property
     def result(self):
-        if self._verifier_request_id is not None:
-            self._result = self._scheduler.verifier_get_request_outputs(self._verifier_request_id)
-            self._verifier_request_id = None
+        if self._request_id is not None:
+            self._result = self._scheduler.get_request_outputs(self._request_id)
+            self._request_id = None
         return self._result
     
     def is_result_ready(self):
-        if self._verifier_request_id is None:
+        if self._request_id is None:
             return True
-        status = self._scheduler.verifier_get_request_status(self._verifier_request_id)
+        status = self._scheduler.get_request_status(self._request_id)
         if status is not None:
             self._result = status
-            self._verifier_request_id = None
+            self._request_id = None
         return self._result is not None
     
     @property
@@ -36,11 +36,11 @@ class Proof(object):
     
     def _update_full_code(self, full_code, _result_backup=None):
         self.full_code = full_code
-        self._verifier_request_id, self._result = None, None
+        self._request_id, self._result = None, None
         if _result_backup is not None:
             self._result = _result_backup
         elif self._args.require_verification:  # need to call verification server
-            self._verifier_request_id = self._scheduler.verifier_submit_request(dict(
+            self._request_id = self._scheduler.submit_request(dict(
                 code=self.full_code,
                 ast=True, tactics=True,
             ))
