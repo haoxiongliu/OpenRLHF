@@ -23,5 +23,6 @@ transformers_stream_generator
 wandb
 wheel
 
+ring_flash_attn
 # prover
 easydict
