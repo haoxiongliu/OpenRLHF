@@ -86,15 +86,14 @@ def load_jsonl_objects(input_path):
 
 def extract_code(text: str, strict: bool = False) -> str:
     code = None
-    if m:= re.search(r'```lean4\n(.*?)\n```', text, re.DOTALL):
-        code = m.group(1)   
-    elif m:= re.search(r'```lean\S*\n(.*)', text, re.DOTALL):
-        if strict:
-            code = "[[Code no end.]]"
-        else:
-            code = m.group(1) # no ``` case
+    pattern = r'```lean4\n(.*?)\n```'
+    last_match = None
+    for match in re.finditer(pattern, text, re.DOTALL):
+        last_match = match # Keep updating last_match with the latest match found
+    if last_match:
+        code =  last_match.group(1)
     else:
-        code = "[[No code found.]]"
+        code = '[[No code found.]]'
     return code
 
 class ConcurrentJob(object):
