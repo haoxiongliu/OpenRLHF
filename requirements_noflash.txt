@@ -1,9 +1,9 @@
 accelerate
 bitsandbytes
 datasets
-deepspeed==0.16.5
+deepspeed==0.16.7
 einops
-vllm==0.8.3
+vllm
 # flash-attn==2.7.4.post1
 isort
 jsonlines
