@@ -19,7 +19,7 @@ import re
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
-from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE
+from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement
 from prover.lean.psa import ProposalStructure
 
 def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
@@ -58,7 +58,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
         result['pass'] = not result['errors']
         result['complete'] = result['pass'] and not result['sorries'] and not any(
             "declaration uses 'sorry'" in w['data'] or 'failed' in w['data'] for w in result['warnings']
-        )
+        ) and has_statement(code)
     except Exception:
         result = {
             "pass": False,
@@ -70,7 +70,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     return result
 
 class Lean4ServerProcess(mp.Process):
-    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, default_header=None, use_pty=False, pty_restart_count=100):
+    def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, default_header=None, use_pty=False, pty_restart_count=100):
         super().__init__()
         self.idx = idx
         self.task_queue = task_queue
@@ -82,6 +82,7 @@ class Lean4ServerProcess(mp.Process):
         self.last_output_time = mp.Value(ctypes.c_double, time.time())
         self.complete_count = mp.Value(ctypes.c_int, 0)
         self.lake_path = lake_path
+        self.repl_path = repl_path
         self.lean_workspace = lean_workspace
         self.header_dict = {}  # Dictionary to store different headers and their environments
         self.use_pty = use_pty
@@ -105,9 +106,9 @@ class Lean4ServerProcess(mp.Process):
                         resource.RLIMIT_AS, 
                         (soft_limit, hard_limit)  # (soft, hard)
                     )
-
+            # legacy [self.lake_path, "exe", 'repl']
             self.repl_process = subprocess.Popen(
-                [self.lake_path, "exe", 'repl'],
+                [self.lake_path, "env", self.repl_path],
                 stdin=slave_fd,
                 stdout=slave_fd,
                 stderr=subprocess.DEVNULL,
@@ -132,18 +133,6 @@ class Lean4ServerProcess(mp.Process):
         except Exception as e:
             logger.error(f"Warning: Failed to set raw mode: {str(e)}")
             raise e
-
-    def _split_header_body(self, code):
-        """Split the code into header and body. None if no header found."""
-        # TODO: add support for more keywords, or other heuristics
-        # This is ad-hoc for proofnet dataset
-        clean_code = remove_lean_comments(code)
-        match = re.search(r'\b(theorem|example|def exercise|def lemma)', clean_code)
-        if match is not None:
-            header, body = clean_code[:match.start()], clean_code[match.start():]
-        else:
-            header, body = None, clean_code
-        return header, body
     
     def _initialize_header_env(self, header):
         """Initialize the environment for a given header"""
@@ -238,13 +227,15 @@ class Lean4ServerProcess(mp.Process):
         
         if proof_aug:
             assert self.use_pty, "ProofAug is only supported in Pty mode"
-            header, body = self._split_header_body(code)
+            header, body = split_header_body(code, remove_comments=False)
             context_num_line = len(header.split('\n'))
+            # get the Maximal compatible semi-proof
             proposal_structure = ProposalStructure(code)
+            # get the subsequent proofs
             raise NotImplementedError("ProofAug is not supported yet")
 
         try:
-            header, body = self._split_header_body(code)
+            header, body = split_header_body(code)
             command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
             
             # Check if we already have an environment for this header
@@ -270,12 +261,16 @@ class Lean4ServerProcess(mp.Process):
                 # "verified_code": code,  # Keep original code for reference
             }
             verification_result['pass'] = not verification_result['errors']
+            # from v4.9.0-rc1 repl
             verification_result['complete'] = (
                 verification_result['pass'] and 
                 not verification_result['sorries'] and 
                 not any("declaration uses 'sorry'" in w['data'] or 'failed' in w['data'] 
-                      for w in verification_result['warnings'])
+                      for w in verification_result['warnings']) and
+                has_statement(code)
             )
+            # v4.19.0-rc2 repl
+            # verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
             
         except Exception:
             verification_result = {
@@ -352,7 +347,7 @@ class Lean4ServerProcess(mp.Process):
                         if ret_code == 134:
                             logger.debug(f"REPL process died with code {ret_code}, restarting, most probably due to memory limit")
                         else:
-                            logger.warning(f"REPL process died with code {ret_code}, unknown cause")
+                            logger.warning(f"REPL process died with code {ret_code}, probably due to wrong command")
                         if not self._clean_init_repl():
                             raise Exception(f"Process {self.idx}: Failed to restart REPL, skipping task")
                     if isinstance(task, str):
@@ -389,7 +384,7 @@ class Lean4ServerProcess(mp.Process):
 class Lean4ServerScheduler(ProcessScheduler):
     def __init__(self, max_concurrent_requests=64, timeout=300, memory_limit=-1, name='verifier', 
                  lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE,
-                 default_header=None, use_pty=False, pty_restart_count=100):
+                 default_header=None, use_pty=False, pty_restart_count=100, repl_path=DEFAULT_REPL_PATH):
         super().__init__(batch_size=1, name=name)
         self.use_pty = use_pty
         self.timeout = timeout
@@ -403,6 +398,7 @@ class Lean4ServerScheduler(ProcessScheduler):
                 timeout=timeout,
                 memory_limit=memory_limit,
                 lake_path=lake_path,
+                repl_path=repl_path,
                 lean_workspace=lean_workspace,
                 default_header=default_header,
                 use_pty=use_pty,

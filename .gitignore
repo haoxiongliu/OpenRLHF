@@ -166,3 +166,4 @@ wandb/*
 wandb
 results/*
 results
+prover/lean/verifier_debug.py

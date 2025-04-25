@@ -7,17 +7,19 @@ import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH
+from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH, DEFAULT_REPL_PATH
 from prover.logger import logger
 import random
 import torch
 from transformers import AutoTokenizer
+from os.path import join
+import logging
 
 async def compile_codes(
-    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE
+    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH
 ):
     lean4_scheduler = Lean4ServerScheduler(
-        max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH
+        max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
     )
     tasks = [{
             "code": code,
@@ -56,6 +58,7 @@ def summarize_results(codes, field):
 
 def main(args):
     # Create output directory first
+    # logger.setLevel(logging.DEBUG)
     os.makedirs(args.output_dir, exist_ok=True)
     
     full_records_path = os.path.join(args.output_dir, 'full_records.jsonl')
@@ -85,38 +88,56 @@ def main(args):
                 if args.split is None or (data["split"] == args.split):
                     data_list.append(data)
 
-        model_inputs = []
+        model_inputs = []   # for non-remote
+        messages_list = []  # for remote
+        prefixes = []
         tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
+        if args.template_name:
+            with open(join("templates", args.template_name + ".json"), mode='r') as f:
+                template = json.loads(f.read())
         for data in data_list:
             header = data.get('header', LEAN4_DEFAULT_HEADER)
             if args.proofaug and 'smt' in args.hammer_type:
                 header = "import Smt\nimport Smt.Real\n" + header
-            formal_statement = data['formal_statement']
+            formal_statement = data['formal_statement'] # until := by\n (or no \n, it depends)
             informal_prefix = data.get('informal_prefix', str())
-            if args.kimina_prompt:
-                
-                if informal_prefix:
-                    if m:= re.match(r"/--(.*?)--/", informal_prefix.strip(), re.DOTALL):
-                        problem = m.group(1)
-                    else:
-                        problem = informal_prefix.strip()
+            if informal_prefix:
+                if m:= re.match(r"/--(.*?)--/", informal_prefix.strip(), re.DOTALL):
+                    problem = m.group(1)
                 else:
-                    problem = 'N/A'
-                prompt = "Think about and solve the following problem step by step in Lean 4."
-                prompt += f"\n# Problem: {problem}"
-                prompt += f"\n# Formal statement:\n```lean4\n{header}{formal_statement}\n```\n"
-                messages = [
-                    {"role": "system", "content": "You are an expert in mathematics and Lean 4."},
-                    {"role": "user", "content": prompt}
-                ]
+                    problem = informal_prefix.strip()
+            else:
+                problem = '[[Informal problem is not available]]'
+
+            # if args.template_name:  #  or args.kimina_prompt
+                # we provide the following fields:
+                # problem, informal_prefix, header, formal statement
+                # currently do not support few-shot
+            if args.template_name:
+                messages = []
+                if "system" in template and template["system"]:
+                    messages.append({"role": "system", "content": template["system"]})
+                messages.append({"role": "user", "content": template["user"].format(problem=problem, informal_prefix=informal_prefix, header=header, formal_statement=formal_statement)})
+                # else: # TODO: to be legacy
+                #     prompt = "Think about and solve the following problem step by step in Lean 4."
+                #     prompt += f"\n# Problem: {problem}"
+                #     prompt += f"\n# Formal statement:\n```lean4\n{header}{formal_statement}\n```\n"
+                #     messages = [
+                #         {"role": "system", "content": "You are an expert in mathematics and Lean 4."},
+                #         {"role": "user", "content": prompt}
+                #     ]                    
+                messages_list.append(messages)
+                # TODO: use model.chat to replace model_inputs
                 text = tokenizer.apply_chat_template(
                     messages,
                     tokenize=False,
                     add_generation_prompt=True
                 )
                 model_inputs.append(text)
-            else:
+                prefixes.append(f"{header}{formal_statement}".split(":=")[0])
+            else:   # TODO: to be legacy by writing a jinja chat_template for this openrlhf template
                 model_inputs.append(f"Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}")
+                prefixes.append(f"{header}{informal_prefix}{formal_statement}".split(":=")[0])
 
         # find the max length of the model input
         def get_num_tokens(text):
@@ -130,20 +151,55 @@ def main(args):
             max_tokens = args.max_tokens
             max_model_len = max_tokens + max_input_tokens
             logger.info(f"{max_tokens=}, {max_input_tokens=}, {args.estimate_max_tokens=} so we set {max_model_len=}")
-        sampling_params = SamplingParams(temperature=args.temperature, max_tokens=max_tokens, top_p=0.95, n=args.n)
         
-        model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=max_model_len, gpu_memory_utilization=args.gpu_memory_utilization)
-        model_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
-        del model
-        torch.cuda.empty_cache()
+        # generate the model_outputs
+        if args.use_remote_llm:
+            import openai
+            client = openai.OpenAI(api_key=args.api_key, base_url=args.base_url)
+            model_outputs = []  # list[list[str]]
+            for messages in messages_list:
+                client.responses.create(
+                    model=args.model_path
+                )
+                response = client.chat.completions.create(
+                    model="deepseek-chat",
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=args.temperature,
+                    n=args.n,
+                    top_p=0.95
+                )
+                model_outputs.append([response.choices[i].message.content for i in range(args.n)])
+        else:
+            # TODO: find how can we use the LLM class for chat
+            # it seems that model.chat is OK but we need to finish the above
+            sampling_params = SamplingParams(temperature=args.temperature, max_tokens=max_tokens, top_p=0.95, n=args.n)
+            model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=max_model_len, gpu_memory_utilization=args.gpu_memory_utilization)
+            # responses = model.chat(messages_list, sampling_params, use_tqdm=True)
+            # model_outputs = [[response.choices[i].message.content for i in range(args.n)] for response in responses]
+            vllm_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
+            model_outputs = [[vllm_output.outputs[i].text for i in range(args.n)] for vllm_output in vllm_outputs]
+            del model
+            torch.cuda.empty_cache()
         
         to_inference_codes = []
         os.makedirs(args.output_dir, exist_ok=True)
         for i in range(len(data_list)):
             data_list[i]["model_input"] = model_inputs[i]
-            data_list[i]["model_outputs"] = [output.text for output in model_outputs[i].outputs]
-            extract_prefix = str() if args.kimina_prompt else model_inputs[i]
-            data_list[i]["full_code"] = [extract_code(extract_prefix + output.text, strict=True) for output in model_outputs[i].outputs]
+            data_list[i]["model_outputs"] = model_outputs[i]
+            extract_prefix = str() if args.template_name else model_inputs[i]
+            prefix = prefixes[i]
+            full_codes = []
+            for output in model_outputs[i]:
+                model_code = extract_code(extract_prefix + output)
+                mc_prefix_end = model_code.find(":=")
+                if mc_prefix_end == -1:
+                    logger.debug(f"No := found in {extract_prefix + output}")
+                    full_code = "[[No := found in the model output]]"
+                else:
+                    full_code = prefix + model_code[mc_prefix_end:]
+                full_codes.append(full_code)
+            data_list[i]["full_code"] = full_codes
             name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]
             to_inference_codes += [{"name": name, "code": code} for code in data_list[i]["full_code"]]
             
@@ -184,7 +240,7 @@ def main(args):
     
     print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
-        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace))
+        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -221,6 +277,10 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--cpu', default=24, type=int)
     parser.add_argument('-g', '--gpu', default=1, type=int)
     parser.add_argument('-f', '--field', default="complete", choices=["complete", "pass"], type=str)
+    parser.add_argument('--use_remote_llm', action='store_true', default=False)
+    parser.add_argument('--template_name', type=str, default=None)
+    parser.add_argument('--base_url', default=None, type=str)
+    parser.add_argument('--api_key', default=None, type=str)
     parser.add_argument('--max_tokens', default=2048, type=int)
     parser.add_argument('--estimate_max_tokens', action='store_true', default=False, help="when set, use max_model_len to deduce max_tokens, otherwise reversely.")
     parser.add_argument('--max_model_len', default=4096, type=int)
@@ -241,6 +301,7 @@ if __name__ == "__main__":
     parser.add_argument('--pty_restart_count', default=100, type=int)
     parser.add_argument('--random_order', action='store_true', default=False)
     parser.add_argument('--lean_workspace', type=str, default='mathlib4/')
+    parser.add_argument('--repl_path', type=str, default=DEFAULT_REPL_PATH)
 
     args = parser.parse_args()
     print(args)

@@ -1,4 +1,5 @@
 import os
+from os.path import join
 import re
 import json
 import torch
@@ -16,7 +17,7 @@ from contextlib import asynccontextmanager
 import random
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE
+from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement
 
 logger = logging.getLogger("lean_reward_server")
 
@@ -33,9 +34,11 @@ class RewardConfig:
                  max_concurrent_requests: int = 16,
                  memory_limit: float = 5,
                  debug: bool = False,
-                 use_pty: bool = False):
+                 use_pty: bool = False,
+                 repl_path: str = None):
         self.lake_path = lake_path or DEFAULT_LAKE_PATH
         self.lean_workspace = lean_workspace or DEFAULT_LEAN_WORKSPACE
+        self.repl_path = repl_path or DEFAULT_REPL_PATH
         self.timeout = timeout
         self.max_concurrent_requests = max_concurrent_requests
         self.memory_limit = memory_limit
@@ -47,7 +50,8 @@ class RewardConfig:
             timeout=self.timeout, 
             memory_limit=self.memory_limit,
             name='reward_verifier',
-            use_pty=self.use_pty
+            use_pty=self.use_pty,
+            repl_path=self.repl_path
         )
 
 
@@ -74,7 +78,30 @@ def create_app(config: RewardConfig) -> FastAPI:
         request_id = str(uuid.uuid4())[:8]
         logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
 
-        codes = [extract_code(query) for query in reward_request.queries]
+        # although reward does not to be 100% accurate
+        # but loose rules can lead to reward hacking.
+        codes = []
+        if all([query.count("```lean4") == 1 for query in reward_request.queries]):
+            mode = "completion"
+        else:
+            mode = "chat"
+        for i in range(len(reward_request.queries)):
+            query = reward_request.queries[i]
+            if mode == "completion":
+                code = extract_code(query)
+            else:
+                # kimina prompt, need to extract the prefix from the prompt
+                prompt = reward_request.prompts[i]
+                response_code = extract_code(query[len(prompt):])
+                prompt_code = extract_code(prompt)
+                prefix = prompt_code.split(":=")[0]
+                mc_prefix_end = response_code.find(":=")
+                if mc_prefix_end == -1:
+                    logger.debug(f"No := found in {response_code}")
+                    code = "[[No := found in the model output]]"
+                else:
+                    code = prefix + response_code[mc_prefix_end:]
+            codes.append(code)
         verification_request_ids = config.scheduler.submit_all_request(codes)
         verification_results = await config.scheduler.async_get_all_request_outputs(verification_request_ids)
         rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
@@ -102,6 +129,7 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="0.0.0.0", help="Server hostname")
     parser.add_argument("--port", type=int, default=5000, help="Server port")
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
+    parser.add_argument("--repl_path", type=str, default=None, help="Repl executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
     parser.add_argument("--timeout", type=int, default=60, help="DO NOT USE THIS SCRIPT FOR EVALUATION. Low timeout to encourage fast verification.")
     parser.add_argument("-n", "--max_concurrent", type=int, default=24, help="Maximum concurrent verification requests")
@@ -135,7 +163,8 @@ if __name__ == "__main__":
         max_concurrent_requests=args.max_concurrent,
         memory_limit=args.memory_limit,
         debug=args.debug,
-        use_pty=args.use_pty
+        use_pty=args.use_pty,
+        repl_path=args.repl_path
     )   
     
     app = create_app(config_instance)

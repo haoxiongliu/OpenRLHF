@@ -5,17 +5,21 @@ import json
 import pytz
 from pathlib import Path
 from datetime import datetime
-from collections import UserDict
+from collections import UserDict, defaultdict
 from importlib.machinery import SourceFileLoader
 from easydict import EasyDict as AttrDict
 from copy import deepcopy
 import re
+import random
 import pandas as pd
 from datasets import load_dataset, Dataset
 
+
 HOME_DIR = os.path.expanduser('~')
+PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
-DEFAULT_LEAN_WORKSPACE = 'mathlib4/'
+DEFAULT_REPL_PATH = f'{PROJ_DIR}/repl/.lake/build/bin/repl'
+DEFAULT_LEAN_WORKSPACE = f'{PROJ_DIR}/mathlib4/'
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
 
@@ -125,6 +129,21 @@ class ConcurrentJob(object):
                 return status
             self._stage_cache = status
 
+def split_header_body(code, remove_comments=True):
+    """Split the code into header and body. None if no header found."""
+    # TODO: add support for more keywords, or other heuristics
+    # This is ad-hoc for proofnet dataset
+    if remove_comments:
+        clean_code = remove_lean_comments(code)
+        # match = re.search(r'\b(theorem|example|def exercise|def lemma)', clean_code)
+    else:
+        clean_code = code
+    match = re.search(r'(?<=\n)(theorem|example|def exercise|def lemma)', clean_code, re.DOTALL)
+    if match is not None:
+        header, body = clean_code[:match.start()], clean_code[match.start():]
+    else:
+        header, body = None, clean_code
+    return header, body
 
 def remove_lean_comments(code: str, normalize: bool = False) -> str:
     """
@@ -157,8 +176,14 @@ def remove_lean_comments(code: str, normalize: bool = False) -> str:
 
 # TODO: make it legacy. do not rely on line analysis
 def is_statement(line: str) -> bool:
+    """starting by have, theorem, example, def exercise"""
     keywords = ["have", "theorem", "example", "def exercise"]
     return any(line.strip().startswith(kw) for kw in keywords)
+
+def has_statement(code: str) -> bool:
+    """Check if the code has any statement."""
+    lines = code.splitlines()
+    return any(is_statement(line) for line in lines)
 
 
 def find_blocks(code: str) -> list[tuple[int, int]]:
@@ -351,6 +376,53 @@ def dataset2prompt_ds(jsonl_path: str) -> Dataset:
     format_str = "```lean4\n{header}{informal_prefix}{formal_statement}"
     new_ds = ds.map(lambda x: {"prompt": format_str.format(header=x["header"], informal_prefix=x["informal_prefix"], formal_statement=x["formal_statement"])})
     return new_ds
+
+def result2leanfiles(
+    compilation_json: str = 'results/minif2f/Kimina-Prover-Preview-Distill-1.5B-n1-0422/code_compilation.json', 
+    output_dir: str = 'mathlib4/MyTest/Kimina-Prover-Preview-Distill-1.5B-n1-0422/',
+    strategy: str = 'random'
+    ):
+    """
+    Convert a compilation json to a lean file.
+    """
+    complete_dir = os.path.join(output_dir, 'complete')
+    failed_dir = os.path.join(output_dir, 'failed')
+    os.makedirs(complete_dir, exist_ok=True)
+    os.makedirs(failed_dir, exist_ok=True)
+    with open(compilation_json, "r") as f:
+        compilation = json.load(f)
+    name2complete = defaultdict(list)
+    name2failed = defaultdict(list)
+    for result in compilation:
+        name = result["name"]
+        code = result["code"]
+        if result["compilation_result"]["complete"]:
+            name2complete[name].append(code)
+        else:
+            name2failed[name].append(code)
+
+    if strategy == 'random':
+        for name, codes in name2complete.items():
+            with open(os.path.join(complete_dir, f"{name}.lean"), "w") as f:
+                f.write(random.choice(codes))
+        for name, codes in name2failed.items():
+            if name not in name2complete:
+                with open(os.path.join(failed_dir, f"{name}.lean"), "w") as f:
+                    f.write(random.choice(codes))
+
+
+def to_command(code, env=None, proofState=None, mode="cmd", verbose=True):
+    if mode == "cmd":
+        cmd = {"cmd": code}
+    elif mode == "tactic":
+        cmd = {"tactic": code}
+    if env is not None:
+        cmd["env"] = env
+    if proofState is not None:
+        cmd["proofState"] = proofState
+    if verbose:
+        print(json.dumps(cmd, ensure_ascii=False))
+    return cmd
 
 if __name__ == "__main__":
     import argparse
