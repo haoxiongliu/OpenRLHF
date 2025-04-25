@@ -30,26 +30,32 @@
 
 <span>[ <a href="README.md">English</a> | 中文 | <a href="README_ja.md">日本語</a> ]</span>
 
-OpenRLHF 是一个基于 Ray、DeepSpeed 和 HF Transformers 构建的高性能 RLHF 框架：
+OpenRLHF 是第一个基于 Ray、vLLM、ZeRO-3 和 HuggingFace Transformers 构建的开源高性能 RLHF 框架，旨在让 RLHF 训练变得简单易用：
 
-- **简单易用**: OpenRLHF 是目前可用的最简单的高性能 RLHF 库之一，无缝兼容 Huggingface 模型和数据集。
-- **高性能**: RLHF 训练中 80% 的时间用于样本生成阶段。得益于使用 Ray, Packing Samples 以及 vLLM 生成加速的能力，OpenRLHF 的性能是极致优化的 DeepSpeedChat with Hybrid Engine 的3~4倍以上。
-- **分布式 RLHF**:  OpenRLHF 使用 Ray 将 Actor、Reward、Reference 和 Critic 模型分布到不同的 GPU 上，同时将 Adam 优化器放在 CPU 上。这使得使用多个 A100 80G GPU 和 vLLM 可以全面微调超过 70B+ 的模型 以及在多个 24GB RTX 4090 GPU 上微调 7B 模型。
-- **Hybrid Engine**: OpenRLHF 还支持 Hybrid engine，所有训练引擎和推理引擎共用 GPU 来避免资源闲置。
-- **PPO 实现技巧**: 我们集成了 PPO 的实现技巧以提高训练稳定性，详情参考 [知乎](https://zhuanlan.zhihu.com/p/622134699) 和 [Notion blog](https://hijkzzz.notion.site/rlhf-implementation-tricks?v=158d9a33ecc98132bf9e000c39227361).
+- **基于 Ray 的分布式架构**  
+  OpenRLHF 利用 [Ray](https://github.com/ray-project/ray) 实现高效的分布式调度。它将 Actor、Reward、Reference 和 Critic 模型分布到不同的 GPU 上，支持高达 70B 参数模型的训练。  
+  它还支持 **Hybrid Engine** 调度，允许所有模型和 vLLM 引擎共享 GPU 资源，最大限度地减少空闲时间并提高 GPU 利用率。
+- **vLLM 推理加速 + AutoTP**  
+  RLHF 训练中 80% 的时间都花在样本生成阶段。基于 [vLLM](https://github.com/vllm-project/vllm) 和自动张量并行 (AutoTP)，OpenRLHF 提供高吞吐量、内存高效的推理。与 HuggingFace Transformers 的原生集成确保了无缝且快速的生成，使其成为目前最快的 RLHF 框架。
+- **基于 ZeRO-3 的内存高效训练**  
+  基于 [DeepSpeed](https://github.com/deepspeedai/DeepSpeed) 的 ZeRO-3 和 [deepcompile](https://github.com/deepspeedai/DeepSpeed/blob/master/blogs/deepcompile/README.md)，OpenRLHF 无需重量级框架即可实现大模型训练。它直接与 HuggingFace 配合使用，方便加载和微调预训练模型。
+- **优化的 PPO 实现**  
+  集成了受实践指南和社区最佳实践启发的先进 PPO 技巧，提高了 RLHF 工作流程中的训练稳定性和奖励质量。参考 [知乎](https://zhuanlan.zhihu.com/p/622134699) 和 [Advanced Tricks for Training Large Language Models with Proximal Policy Optimization](https://hijkzzz.notion.site/rlhf-implementation-tricks?v=158d9a33ecc98132bf9e000c39227361)。
 
 更多细节请参考 [PPT](https://docs.google.com/presentation/d/1JRhB1d7csofx0PIZBmfyBdMluxNd5JLPpUHrrvVhGnk/edit?usp=sharing) | [技术报告](https://arxiv.org/abs/2405.11143) | [使用文档](https://openrlhf.readthedocs.io/)
 
 
 ## 新闻  
+- [2025/4] 发布博客 [Accelerating RLHF with vLLM, Best Practice from OpenRLHF](https://blog.vllm.ai/2025/04/23/openrlhf-vllm.html)
+- [2025/4] Clean OpenRLHF: 基于 Single Controller 和 Unified Packing Samples 重构了源码
 - [2025/3] CMU的[2025春季高级自然语言处理课程](https://cmu-l3.github.io/anlp-spring2025/)使用OpenRLHF作为RLHF框架教学案例。
 - [2025/2] [Logic-RL](https://arxiv.org/abs/2502.14768) 和 [PRIME](https://arxiv.org/abs/2502.01456) 展示了 REINFORCE++ 在训练稳定性上优于 GRPO 并且比 PPO 更快。
-- [2025/2] StepFunc 实现了 [OpenRLHF 的单控制器版本](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero).
 - [2025/2] [LMM-R1](https://github.com/TideDra/lmm-r1) 是 OpenRLHF 的一个分支，旨在为多模态任务上复现 DeepSeek-R1 提供高性能的 RL 基础设施。
 - [2025/2] MIT & Microsoft 提出了 [On the Emergence of Thinking in LLMs I: Searching for the Right Intuition](https://arxiv.org/pdf/2502.06773) 基于 OpenRLHF
 - [2025/1] 港科大复现了 [DeepSeek-R1-Zero and DeepSeek-R1 training on small models 使用 OpenRLHF](https://github.com/hkust-nlp/simpleRL-reason)
 - [2024/12] 我们"提出"了 😊 [REINFORCE++ 对齐算法](https://www.researchgate.net/publication/387487679_REINFORCE_A_SIMPLE_AND_EFFICIENT_APPROACH_FOR_ALIGNING_LARGE_LANGUAGE_MODELS).
 - [2024/12] 在 [Notion Blog](https://hijkzzz.notion.site/unraveling-rlhf-and-its-variants-engineering-insights#147d9a33ecc9806090f3d5c749d31f05) 中，我们对 PPO、REINFORCE++、GRPO 和 RLOO 进行了分析。  
+- [2023/8] OpenRLHF 开启开源之旅. 
 
 ## 特性  
 
@@ -75,22 +81,6 @@ OpenRLHF 是一个基于 Ray、DeepSpeed 和 HF Transformers 构建的高性能 
 - 支持从检查点恢复训练（`--load_checkpoint` 和 `--save_steps`）。  
 - 提供了多节点训练脚本, 比如 [DPO](./examples/scripts/train_llama_slurm.sh) 和 [RLHF](./examples/scripts/train_ppo_llama_ray_slurm.sh)
 
-
-### PPO 支持矩阵
-
-| 特性 | OpenRLHF | DSChat | CAIChat | TRL |
-| ------------- |:-------------:| :-------------:| :-------------:| :-------------:| 
-| 使用 16 个 A100 完成 70B+ 全微调      | ✅ | ❌ | ❌ | ❌ ||
-| 使用 4 个 RTX4090 完成 7B 全微调 | ✅      |    ❌ | ❌ | ❌ | 
-| 使用 8 个 A100 完成 34B DPO 全微调 | ✅      |    ❌ | ❌ | ❌ |   
-| 支持推理引擎加速 | ✅      |    ✅ | ❌ | ❌ |  
-| PPO 实现技巧 | ✅      |    ❌ | ❌ | ✅ | 
-| 支持 QLoRA | ✅      |    ❌ | ❌ | ✅ | 
-| 支持 Mixtral 8*7b | ✅      |    ❌ | ❌ | ❌ | 
-| 支持未合并的 Actor-Critic | ✅     |   ✅ | ✅ | ❌ | 
-| 支持多个奖励模型 | ✅      |    ❌ | ❌ | ❌ |   
-| 支持 Huggingface 模型 | ✅      |    ✅ | ✅ | ✅ | 
-| 易于使用 | ✅      |   ❌ (HybridEngine bugs) | ✅ | ✅ | 
 
 ## 快速开始
 
@@ -329,12 +319,11 @@ ray job submit --address="http://127.0.0.1:8265" \
 ```
 
 > [!NOTE]
-> 不设置 `--vllm_num_engines` 意味着不使用 vLLM 引擎。
 > 你也可以使用 ``setup_commands`` 让 Ray 自动部署环境，例如 `--runtime-env-json='{"setup_commands": ["pip install openrlhf[vllm]"]}'`。
 
 > [!NOTE]
 > OpenRLHF 中的 RLOO 和 REINFORCE++-baseline 是基于 REINFORCE++ 的修改版本：
-> - REINFORCE++ 集成了 PPO 的关键优化技术（如优势归一化和 PPO-clip loss），同时消除了对 critic 网络的需求。
+> - REINFORCE++ 集成了 PPO 的关键优化技术（如优势归一化和 PPO-clip loss）到 REINFORCE，同时消除了对 Critic 网络的需求。
 > - REINFORCE++-baseline 使用`来自同一个 prompt 的多个样本的平均奖励`作为基线来重塑奖励（使用全局批次归一化 `/std`）。
 > - OpenRLHF 中的 RLOO 通过引入`per token 的 KL 奖励`并使用 `PPO-clip loss` 来修改原始版本。
 > - Dr. GRPO 移除了 GRPO 中的组归一化 `/std`。
@@ -412,7 +401,7 @@ python -m openrlhf.cli.lora_combiner \
 - 当有足够的GPU内存时，使用 Hybrid Engine `--colocate_all_models` 和 `--vllm_enable_sleep` 以及 `--deepspeed_enable_sleep`，而不是分布式RLHF。
 - 启用 `--colocate_critic_reward`、`--colocate_actor_ref` 选项来合并节点。
 - 您应该尽可能增加 `rollout_micro_batch_size`（并最小化vLLM引擎的TP大小）。在训练阶段，更大的 `--micro_train_batch_size` 效果更好，并启用 `--packing_samples`。
-- 当有足够的GPU内存时，请禁用 `--adam_offload` 并启用 `--overlap_comm`。
+- 当有足够的GPU内存时，请禁用 `--adam_offload` 并启用 `--overlap_comm`。请启用 ``--deepcompile`` 来加速 deepspeed 训练.
 - 对于vLLM，请使用 `--vllm_sync_backend nccl` 
 - 当 `n_samples_per_prompts` > 1 时，在vLLM生成中启用 [enable_prefix_caching](https://docs.vllm.ai/en/stable/automatic_prefix_caching/apc.html)。
 - 对于大型基础模型，如果出现OOM，不要使用任何 `--colocate_xxxx` 选项。

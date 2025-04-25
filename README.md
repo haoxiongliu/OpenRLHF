@@ -27,25 +27,31 @@
 
 <span>[ English | <a href="README_zh.md">中文</a> | <a href="README_ja.md">日本語</a> ]</span>
 
-OpenRLHF is a high-performance RLHF framework built on Ray, DeepSpeed and HF Transformers:
+OpenRLHF is the first easy-to-use, high-performance open-source RLHF framework built on Ray, vLLM, ZeRO-3 and HuggingFace Transformers, designed to make RLHF training simple and accessible:
 
-- **Simple and easy to use**: OpenRLHF is one of the simplest high-performance RLHF libraries currently available, and seamlessly compatible with Huggingface models and datasets.
-- **High performance**: RLHF training spends 80% of the time on the sample generation stage. Thanks to the ability to use a large inference batch size with Ray and Packing Samples and vLLM generation acceleration, the performance of OpenRLHF 3~4x+ that of Optimized DeepSpeedChat with Hybrid Engine.
-- **Distributed RLHF**:  OpenRLHF distribute the Actor, Reward, Reference, and Critic models onto separate GPUs using Ray, while placing the Adam optimizer on the CPU. This enables full-scale fine-tuning of 70B+ models with multiple A100 80G GPUs and vLLM and 7B models across multiple 24GB RTX 4090 GPUs.
-- **Hybrid Engine**:  OpenRLHF also supports the hybrid engine, allowing all models and vLLM engines to share the GPUs to avoid GPU idling.
-- **PPO Implementation Optimization**: We integrated the implementation tricks for PPO to improve the training stability, referencing [Zhihu](https://zhuanlan.zhihu.com/p/622134699) and [Advanced Tricks for Training Large Language Models with Proximal Policy Optimization](https://hijkzzz.notion.site/rlhf-implementation-tricks?v=158d9a33ecc98132bf9e000c39227361).
+- **Distributed Architecture with Ray**  
+  OpenRLHF leverages [Ray](https://github.com/ray-project/ray) for efficient distributed scheduling. It separates the Actor, Reward, Reference, and Critic models across different GPUs, enabling scalable training for models up to 70B parameters.  
+  It also supports **Hybrid Engine** scheduling, allowing all models and vLLM engines to share GPU resources—minimizing idle time and maximizing GPU utilization.
+- **vLLM Inference Acceleration + AutoTP**  
+  RLHF training spends 80% of the time on the sample generation stage. Powered by [vLLM](https://github.com/vllm-project/vllm) and Auto Tensor Parallelism (AutoTP), OpenRLHF delivers high-throughput, memory-efficient samples generation. Native integration with HuggingFace Transformers ensures seamless and fast generation, making it the fastest RLHF framework available.
+- **Memory-Efficient Training with ZeRO-3**  
+  Built on [DeepSpeed's](https://github.com/deepspeedai/DeepSpeed) ZeRO-3 and [deepcompile](https://github.com/deepspeedai/DeepSpeed/blob/master/blogs/deepcompile/README.md), OpenRLHF enables large model training without heavyweight frameworks. It works directly with HuggingFace for easy loading and fine-tuning of pretrained models.
+- **Optimized PPO Implementation**  
+  Incorporates advanced PPO tricks inspired by practical guides and community best practices, enhancing training stability and reward quality in RLHF workflows. Referencing [Zhihu](https://zhuanlan.zhihu.com/p/622134699) and [Advanced Tricks for Training Large Language Models with Proximal Policy Optimization](https://hijkzzz.notion.site/rlhf-implementation-tricks?v=158d9a33ecc98132bf9e000c39227361).
 
 More details are in [Slides](https://docs.google.com/presentation/d/1JRhB1d7csofx0PIZBmfyBdMluxNd5JLPpUHrrvVhGnk/edit?usp=sharing) | [Technical Report](https://arxiv.org/abs/2405.11143) | [Documents](https://openrlhf.readthedocs.io/)
 
 ## News
+- [2025/4] Post the blog [Accelerating RLHF with vLLM, Best Practice from OpenRLHF](https://blog.vllm.ai/2025/04/23/openrlhf-vllm.html)
+- [2025/4] Clean OpenRLHF: Refactored the source code based on Single Controller and Unified Packing Samples
 - [2025/3] The CMU [Advanced Natural Language Processing Spring 2025](https://cmu-l3.github.io/anlp-spring2025/) course uses OpenRLHF as the RLHF framework teaching case.
 - [2025/2] [Logic-RL](https://arxiv.org/abs/2502.14768) and [PRIME](https://arxiv.org/abs/2502.01456) demonstrate that REINFORCE++ is more stable in training compared to GRPO and faster than PPO.
-- [2025/2] StepFunc implements a [single-controller version of OpenRLHF](https://github.com/Open-Reasoner-Zero/Open-Reasoner-Zero).
 - [2025/2] [LMM-R1](https://github.com/TideDra/lmm-r1) is a fork of OpenRLHF, aimed at providing high-performance RL infrastructure for reproduction of DeepSeek-R1 on multimodal tasks.
 - [2025/2] MIT & Microsoft proposed the [On the Emergence of Thinking in LLMs I: Searching for the Right Intuition](https://arxiv.org/pdf/2502.06773) using OpenRLHF
 - [2025/1] HKUST reproduced the [DeepSeek-R1-Zero and DeepSeek-R1 training on small models using OpenRLHF](https://github.com/hkust-nlp/simpleRL-reason)
 - [2024/12] We "proposed" 😊 the [REINFORCE++: A Simple and Efficient Approach for Aligning Large Language Models](https://www.researchgate.net/publication/387487679_REINFORCE_A_SIMPLE_AND_EFFICIENT_APPROACH_FOR_ALIGNING_LARGE_LANGUAGE_MODELS).
 - [2024/12] We analyzed the PPO, REINFORCE++, GRPO and RLOO in the [Notion Blogpost](https://hijkzzz.notion.site/unraveling-rlhf-and-its-variants-engineering-insights#147d9a33ecc9806090f3d5c749d31f05).
+- [2023/8] OpenRLHF was open-sourced. 
 
 
 ## Features
@@ -71,24 +77,6 @@ More details are in [Slides](https://docs.google.com/presentation/d/1JRhB1d7csof
 - Logging support with Wandb (`--use_wandb`) and TensorBoard (`--use_tensorboard`).  
 - Checkpoint recovery functionality (`--load_checkpoint` and `--save_steps`).  
 - Provided multi-node training scripts, such as [DPO](./examples/scripts/train_llama_slurm.sh) and [Ray PPO](./examples/scripts/train_ppo_llama_ray_slurm.sh).
-
-
-### PPO Support Matrix
-
-| Feature | OpenRLHF | DSChat | CAIChat | TRL |
-| ------------- |:-------------:| :-------------:| :-------------:| :-------------:|
-| 70B+ Full Tuning with 16 A100-80GB      | ✅ | ❌ | ❌ | ❌ |
-| 7B Full Tuning with 4 RTX4090 | ✅      |    ❌ | ❌ | ❌ |
-| 34B DPO Full Tuning with 8 A100-80GB | ✅      |    ❌ | ❌ | ❌ |  
-| Inference Engine in PPO | ✅      |    ✅ | ❌ | ❌ |  
-| PPO Implementation Tricks | ✅      |    ❌ | ❌ | ✅ |
-| Support QLoRA | ✅      |    ❌ | ❌ | ✅ | 
-| Support Mixtral 8*7b | ✅      |    ❌ | ❌ | ❌ |  
-| Support Unmerged Actor-Critic | ✅     |   ✅ | ✅ | ❌ | 
-| Support Multiple Reward Models | ✅      |    ❌ | ❌ | ❌ |   
-| Support Huggingface Models | ✅      |    ✅ | ✅ | ✅ | 
-| Easy-to-use | ✅      |   ❌ (HybridEngine bugs) | ✅ | ✅ | 
-
 
 ## Quick Start
 
@@ -326,12 +314,11 @@ ray job submit --address="http://127.0.0.1:8265" \
 # --n_samples_per_prompt 4
 ```
 > [!NOTE]
-> Do not set `--vllm_num_engines` means not using the vLLM engine.
 > You can also use ``setup_commands`` to let Ray automatically deploy the environment, such as `--runtime-env-json='{"setup_commands": ["pip install openrlhf[vllm]"]}'`.
 
 > [!NOTE]
 > RLOO and REINFORCE++-baseline in OPENRLHF are a modification based on REINFORCE++:
-> - REINFORCE++ integrates key optimization techniques from PPO (such as advantage normalization and PPO-clip loss) while eliminating the need for a critic network.
+> - REINFORCE++ integrates key optimization techniques from PPO (such as advantage normalization and PPO-clip loss) into REINFORCE while eliminating the need for a critic network.
 > - REINFORCE++-baseline uses the `mean reward of multiple samples from the same prompt` as the baseline to reshape the rewards (with global batch normalization `/std`).
 > - RLOO in OpenRLHF modifies the original version by incorporating the `per-token KL reward` and utilizing the `PPO-clip loss`.
 > - Dr. GRPO remove the group normalization `/std` in GRPO.
@@ -408,7 +395,7 @@ To achieve optimal performance, we recommend allocating nodes `vLLM:Actor:Critic
 - Using hybrid engine `--colocate_all_models` and `--vllm_enable_sleep` and `--deepspeed_enable_sleep` rather than distributed RLHF when there are enough GPU memory.
 - Enable the `--colocate_critic_reward`, `--colocate_actor_ref` options to merge nodes.  
 - You should increase the `rollout_micro_batch_size` (and minimize the TP size of vLLM engine) as much as possible. During the training phase, a larger `--micro_train_batch_size` is better and enable `--packing_samples`.
-- When there are enough GPU memory, please disable `--adam_offload` and enable `--overlap_comm`.
+- When there are enough GPU memory, please disable `--adam_offload` and enable `--overlap_comm`.  Also enable ``--deepcompile`` to speed up the training.
 - For vLLM, please use `--vllm_sync_backend nccl`
 - Enable [enable_prefix_caching](https://docs.vllm.ai/en/stable/automatic_prefix_caching/apc.html) in vLLM generation when `n_samples_per_prompts` > 1.
 - For a large base model, if an OOM occurs, do not use any `--colocate_xxxx` options.
