@@ -8,14 +8,14 @@ from openrlhf.utils.logging_utils import init_logger
 logger = init_logger(__name__)
 
 
-def request_api_wrapper(url, data, score_key="rewards", try_max_times=5):
+def request_api_wrapper(url, data, score_key="rewards", try_max_times=3):
     """Synchronous request API wrapper"""
     headers = {
         "Content-Type": "application/json",
     }
     for _ in range(try_max_times):
         try:
-            response = requests.post(url=url, json=data, headers=headers, timeout=600)
+            response = requests.post(url=url, json=data, headers=headers, timeout=360)
             response.raise_for_status()  # Raise an HTTPError for bad responses
             response = response.json()
             assert score_key in response, f"{score_key} not in {response}"
@@ -25,8 +25,9 @@ def request_api_wrapper(url, data, score_key="rewards", try_max_times=5):
         except Exception as e:
             logger.info(f"Unexpected error, please check: {e}")
         time.sleep(1)
-
-    raise Exception(f"Request error for {try_max_times} times, returning None. Please check the API server.")
+    # ad-hoc for tp. TODO: find a more general solution
+    logger.warning(f"Request error for {try_max_times} times, returning None. Please check the API server.")
+    return [0.0]*len(data["queries"])
 
 
 def remote_rm_fn(api_url, queries, prompts, labels, score_key="rewards"):

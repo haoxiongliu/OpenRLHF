@@ -92,13 +92,14 @@ def create_app(config: RewardConfig) -> FastAPI:
             else:
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
-                response_code = extract_code(query[len(prompt):])
+                response = query[len(prompt):]
+                response_code = extract_code(response)
                 prompt_code = extract_code(prompt)
                 prefix = prompt_code.split(":=")[0]
                 mc_prefix_end = response_code.find(":=")
                 if mc_prefix_end == -1:
-                    logger.debug(f"No := found in {response_code}")
-                    code = "[[No := found in the model output]]"
+                    logger.debug(f"No := or code block found in ...{response[-50:]}")
+                    code = "[[No := or code block found in the model output]]"
                 else:
                     code = prefix + response_code[mc_prefix_end:]
             codes.append(code)
