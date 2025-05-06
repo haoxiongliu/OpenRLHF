@@ -34,16 +34,41 @@ theorem mathd_algebra_114 (a : ℝ) (h₀ : a = 8) :
 
 from __future__ import annotations
 from typing import Optional
-from prover.utils import remove_lean_comments, is_statement, split_header_body
+from prover.utils import remove_lean_comments, statement_starts, analyzable, n_indent
 import re
+from enum import StrEnum
 
+
+class BlockState(StrEnum):
+    UNVERIFIED = 'unverified'
+    WAIT_SORRY = 'wait_sorry'
+    SORRY_FAILED = 'sorry_failed'
+    PASSED = 'compilation_passed'
+    STTM_FAILED = 'sttm_failed'
+    COMPLETED = 'completed'
 
 class Snippet(object):
-    """A snippet of a lean 4 proof. Always add a newline before adding a new snippet."""
-    def __init__(self, content: Optional[str] = None):
+    """A snippet corresponding to a tactic or ends with := by. 
+    Always add a newline before adding a new snippet."""
+    def __init__(self, content: str = ''):
         self.content = content
+        self._proofaug_content = None
     
-    def receive_snippet(self, snippet: Snippet | str):
+    @property
+    def category(self):
+        if statement_starts(self.content):
+            return 'statement'
+        else:
+            return 'normal'
+    
+    @property
+    def proofaug_content(self):
+        if self._proofaug_content is None:
+            return self.content
+        else:
+            return self._proofaug_content
+
+    def _receive_snippet(self, snippet: Snippet | str):
         new_content = snippet.content if isinstance(snippet, Snippet) else snippet
         if self.content:
             self.content += "\n" + new_content
@@ -57,27 +82,52 @@ class Block(object):
     """each block is a list of snippets and subblocks"""
     def __init__(self, parent: Optional[Block]):
         self.parts = [] # type: list[Block|Snippet]
-        self.subblock_indices = [] # type: list[int]
         self.parent = parent
+        self.index = parent.index + f".{len(parent.parts)}" if parent else "0"
         self.level = parent.level + 1 if parent else -1
         self.content_snapshot = None # type: str
-      
+        self.state = BlockState.UNVERIFIED # wait_sorry, sorry_failed, verified, sttm_failed
+        self._proofaug_parts = None
+        
     @property
     def content(self):
         return "\n".join([part.content for part in self.parts])
     
     @property
+    def proofaug_parts(self):
+        if self._proofaug_parts is None:
+            return self.parts
+        else:
+            return self._proofaug_parts
+
+    @property
+    def proofaug_content(self):
+        return "\n".join([part.proofaug_content for part in self.proofaug_parts])
+
+    @property
+    def category(self):
+        return 'block'
+
+    @property
     def statement(self):
         return self.parts[0].content.split(':=')[0]
 
-    def receive_block(self, block: Block):
+    def _receive_block(self, block: Block):
         self.parts.append(block)
-        self.subblock_indices.append(len(self.parts) - 1)
 
-    def receive_snippet(self, snippet: Snippet | str):
-        if not self.parts or isinstance(self.parts[-1], Block):
-            self.parts.append(Snippet())
-        self.parts[-1].receive_snippet(snippet)
+    def _receive_snippet(self, snippet: Snippet | str, append: bool = False):
+        if append and self.parts and isinstance(self.parts[-1], Snippet):
+            self.parts[-1]._receive_snippet(snippet)
+        else:
+            self.parts.append(snippet)
+        # legacy code. remain here for reference
+        # if self.parts and isinstance(self.parts[-1], Snippet) and self.parts[-1].category == 'statement':
+        #     last_is_sttm = True
+        # else:
+        #     last_is_sttm = False
+        # if last_is_sttm or not self.parts or isinstance(self.parts[-1], Block):
+        #     self.parts.append(Snippet())
+        # self.parts[-1]._receive_snippet(snippet)
 
     def __repr__(self):
         return f"-- Block(level={self.level}, content=\n{self.content})"
@@ -96,43 +146,65 @@ class ProposalStructure(object):
         # determine the blocks by finding 'have' and ':=' and by the indentation
         indent2level = {}
         block_stack = [Block(parent=None)] # type: list[Block]
-        in_statement = False
-        for i, line in enumerate(lines):
-            
-            # we require that the proof never opens a new goal by 'have' when the current same level block is not yet closed
-            
-            if in_statement:
-                if ':=' in line:
-                    in_statement = False
-                snippet = Snippet(line)
-                block_stack[-1].receive_snippet(snippet)
+        i = 0   # pointer
+        while i < len(lines):
+            line = lines[i]
+            if line.strip() == '':
+                block_stack[-1]._receive_snippet(Snippet(), append=True)
+                i += 1
                 continue
-
-            indent = len(line) - len(line.lstrip())
+            # we assume that the proof never opens a new goal by 'have' when the current same level block is not yet closed
+            # determine the level and the current block
+            # 重构：只对有:= by的分析，然后遇到
+            indent = n_indent(line)
             if indent not in indent2level:
                 indent2level[indent] = len(indent2level)
             level = indent2level[indent]
-            if is_statement(line):
-                for i in range(len(block_stack) - 1, -1, -1):
-                    if block_stack[i].level >= level:
+            if statement_starts(line):
+                for j in range(len(block_stack) - 1, -1, -1):
+                    if block_stack[j].level >= level:
                         block_stack.pop()
                     else:
                         break
                 last_block = block_stack[-1]
                 block = Block(parent=last_block)
-                last_block.receive_block(block)
+                # block._receive_snippet(Snippet(lines[i]))
+                sttm_content = line
+                while True:
+                    i += 1
+                    if analyzable(sttm_content) or i >= len(lines) :
+                        # the second one corresponding to have xxx := h1.1
+                        break
+                    if n_indent(lines[i]) < indent:
+                        break
+                    elif n_indent(lines[i]) == indent:
+                        if not lines[i].strip().startswith('|'):
+                            break
+                    sttm_content += "\n" + lines[i]
+                last_block._receive_block(block)
                 block_stack.append(block)
-                in_statement = True
+                block._receive_snippet(Snippet(sttm_content))
+
             else:
-                for i in range(len(block_stack) - 1, -1, -1):
-                    if block_stack[i].level >= level:
+                for j in range(len(block_stack) - 1, level - 1, -1):
+                    if block_stack[j].level >= level:
                         block_stack.pop()
                     else:
                         break    
-                last_block = block_stack[-1]
-            block_stack[-1].receive_snippet(Snippet(line))
-            if ':=' in line:
-                in_statement = False
+                block = block_stack[-1]
+                tactic_content = line
+                i += 1
+                while i < len(lines):
+                    if n_indent(lines[i]) < indent:
+                        break
+                    elif n_indent(lines[i]) == indent:
+                        special_indicators = ['|', '<;>']
+                        if not any(lines[i].strip().startswith(indicator) for indicator in special_indicators):
+                            break
+                    tactic_content += "\n" + lines[i]
+                    i += 1
+                block._receive_snippet(Snippet(tactic_content))
+                
         self.root = block_stack[0]
     
     def _traverse_blocks(self, block: Block):

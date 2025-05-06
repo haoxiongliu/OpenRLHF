@@ -15,12 +15,14 @@ import signal
 import resource
 import errno
 import re
+from typing import Optional
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
-from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement
-from prover.lean.psa import ProposalStructure
+from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, HINT_DICT, n_indent
+from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
+
 
 def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
                       verbose=False, timeout=300, allTactics=False, ast=False, premises=False, tactics=False):
@@ -138,7 +140,7 @@ class Lean4ServerProcess(mp.Process):
         """Initialize the environment for a given header"""
         if header in self.header_dict:
             return self.header_dict[header]
-        command = dict(cmd=header, allTactics=False, ast=False, tactics=False, premises=False)
+        command = to_command(header, env=None, mode="cmd")
         result = self._send_command_to_repl(command)
         if 'env' not in result:
             messages = result.get('messages', [])   
@@ -220,58 +222,161 @@ class Lean4ServerProcess(mp.Process):
         ast: bool=False, 
         premises: bool=False, 
         tactics: bool=False, 
-        proof_aug: bool=False,
+        proofaug: bool=False,
+        pa_with_orig: bool=False,
+        hammer_type: str='my_hint',
     ):
         start_time = time.time()
         system_messages = ''
-        
-        if proof_aug:
-            assert self.use_pty, "ProofAug is only supported in Pty mode"
-            header, body = split_header_body(code, remove_comments=False)
-            context_num_line = len(header.split('\n'))
-            # get the Maximal compatible semi-proof
-            proposal_structure = ProposalStructure(code)
-            # get the subsequent proofs
-            raise NotImplementedError("ProofAug is not supported yet")
-
         try:
-            header, body = split_header_body(code)
-            command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
-            
-            # Check if we already have an environment for this header
-            if header is not None:
-                env = self._initialize_header_env(header)
-                if env is not None:
-                    command.update(env=env)
-            
-            result = self._send_command_to_repl(command)
-            
-            ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
-            verification_result = {
-                "sorries": result.get('sorries', []), 
-                "tactics": result.get('tactics', []),
-                "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
-                "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
-                "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
-                "system_messages": system_messages,
-                "system_errors": None,
-                "ast": ast_results,
-                "header": header,
-                "body": body
-                # "verified_code": code,  # Keep original code for reference
-            }
-            verification_result['pass'] = not verification_result['errors']
-            # from v4.9.0-rc1 repl
-            verification_result['complete'] = (
-                verification_result['pass'] and 
-                not verification_result['sorries'] and 
-                not any("declaration uses 'sorry'" in w['data'] or 'failed' in w['data'] 
-                      for w in verification_result['warnings']) and
-                has_statement(code)
-            )
-            # v4.19.0-rc2 repl
-            # verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
-            
+            if proofaug:
+                assert self.use_pty, "ProofAug is only supported in Pty mode"
+                hint = HINT_DICT[hammer_type]
+                header, body = split_header_body(code, remove_comments=False)
+                if header is not None:
+                    init_env = self._initialize_header_env(header)  # can be None
+                
+                ps = ProposalStructure(body)
+                block = ps.root.parts[0]
+                proofaug_index = []
+                proofState2goals = {}
+                hammer_count = 0
+
+                def verify_block(block: Block, proofState: Optional[int] = None) -> Optional[int]:
+                    # handle statement individually. then the rest is handled by verify_block
+                    init_state = proofState
+                    sttm_part = block.parts[0]
+                    assert sttm_part.category == 'statement' # this shoule be asserted by _analyze
+                    code = sttm_part.content
+                    if code.strip().endswith('by'):
+                        code += ' sorry'
+                    if proofState is None:  # block.level == 0
+                        cmd = to_command(code, env=init_env, sorries="grouped", mode="cmd")
+                        result = self._send_command_to_repl(cmd)
+                        errors = [m for m in result['messages'] if m['severity'] == 'error']
+                    else:
+                        cmd = to_command(code, proofState=proofState, sorries="grouped", mode="tactic")  
+                        result = self._send_command_to_repl(cmd)
+                        errors = [result['message']] if 'error' in result.get('message', '') else []
+
+                    if errors:
+                        block.state = BlockState.STTM_FAILED
+                        return init_state
+                    if proofState is None:
+                        proofState = result['sorries'][0]['proofState'] # since we used grouped, there is only 1
+                        proofState2goals[proofState] = result['sorries'][0]['goals']
+                    else:
+                        proofState = result['proofState']
+                        proofState2goals[proofState] = result['goals']
+                    sttm_state = proofState
+
+                    # handle the rest of the block
+                    rest_parts = block.parts[1:] if len(block.parts) > 1 else []
+                    rest_part_index = 0
+                    for part in rest_parts:
+                        if isinstance(part, Snippet):
+                            code = part.content
+                            if part.category == 'statement':
+                                if code.strip().endswith('by'):
+                                    code += ' sorry'
+                                cmd = to_command(code, proofState=proofState, sorries="grouped", mode="tactic")
+                                result = self._send_command_to_repl(cmd)
+                                errors = [result['message']] if 'error' in result.get('message', '') else []
+                                if errors:
+                                    block.state = BlockState.WAIT_SORRY
+                                    break
+                                proofState = result['proofState']
+                                sttm_state = proofState
+                                proofState2goals[proofState] = result['goals']
+                            else:
+                                cmd = to_command(code, proofState=proofState, sorries="grouped", mode="tactic")
+                                result = self._send_command_to_repl(cmd)
+                                errors = [result['message']] if 'error' in result.get('message', '') else []
+                                if errors:
+                                    block.state = BlockState.WAIT_SORRY
+                                    break
+                                proofState = result['proofState']
+                                proofState2goals[proofState] = result['goals']
+
+                        elif isinstance(part, Block):
+                            proofState, result = verify_block(part, proofState)
+                            if part.state in [BlockState.STTM_FAILED, BlockState.SORRY_FAILED]:
+                                block.state = BlockState.WAIT_SORRY
+                                break
+                        rest_part_index += 1
+                    # use hint to try sorry
+                    if block.state == BlockState.WAIT_SORRY or (block.level == 0 and result.get('proofStatus', None) != 'Completed'):
+                        # TODO: check this, maybe change proofState to right after the statement
+                        cmd = to_command(hint, proofState=proofState, sorries="grouped", mode="tactic")
+                        result = self._send_command_to_repl(cmd)
+                        hammer_count += 1
+                        errors = [result['message']] if 'error' in result.get('message', '') else []
+                        if errors:
+                            block.state = BlockState.SORRY_FAILED
+                            proofState = sttm_state
+                        else:
+                            # TODO: modify this magic number 2
+                            num_indent = n_indent(block.parts[0].content) + 2
+                            sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*num_indent + hint)
+                            # sttm_snippet = Snippet(block.statement + ':= by ' + hint)
+                            block._proofaug_parts = [sttm_snippet]
+                            block.state = BlockState.PASSED
+                            proofaug_index.append(block.index)
+                            proofState = result['proofState']
+                            proofState2goals[proofState] = result['goals']
+                    else:
+                        block.state = BlockState.PASSED
+                    if block.level == 0 and result.get('proofStatus', None) == 'Completed':
+                        block.state = BlockState.COMPLETED
+                    return proofState, result
+
+                proofState, result = verify_block(block)
+                complete = block.state == BlockState.COMPLETED
+                if complete:
+                    success_type = 'original' if not proofaug_index else 'proofaug'
+                else:
+                    success_type = 'failed'
+                verification_result = {
+                    "complete": complete,
+                    "header": header,
+                    "body": block.proofaug_content,
+                    "success_type": success_type,
+                    "pass": block.state in [BlockState.PASSED, BlockState.COMPLETED],
+                    "proofaug_index": proofaug_index,
+                    "last_result": result,
+                    "hammer_count": hammer_count,
+                }
+            if (not proofaug) or (pa_with_orig and (not complete)):
+                header, body = split_header_body(code)
+                command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
+                
+                # Check if we already have an environment for this header
+                if header is not None:
+                    env = self._initialize_header_env(header)
+                    if env is not None:
+                        command.update(env=env)
+                
+                result = self._send_command_to_repl(command)
+                
+                ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
+                verification_result = {
+                    "sorries": result.get('sorries', []), 
+                    "tactics": result.get('tactics', []),
+                    "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
+                    "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
+                    "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
+                    "system_messages": system_messages,
+                    "system_errors": None,
+                    "ast": ast_results,
+                    "header": header,
+                    "body": body
+                    # "verified_code": code,  # Keep original code for reference
+                }
+                verification_result['pass'] = not verification_result['errors']
+                verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
+
+
+
         except Exception:
             verification_result = {
                 "pass": False,

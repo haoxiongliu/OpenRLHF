@@ -13,10 +13,13 @@ import random
 import torch
 from transformers import AutoTokenizer
 from os.path import join
-import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from tqdm import tqdm
+import openai
+
 
 async def compile_codes(
-    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH
+    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, hammer_type='my_hint', pa_with_orig=False
 ):
     lean4_scheduler = Lean4ServerScheduler(
         max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
@@ -24,7 +27,10 @@ async def compile_codes(
     tasks = [{
             "code": code,
             "ast": ast,
-            "tactics": tactics
+            "tactics": tactics,
+            "proofaug": proofaug,
+            "hammer_type": hammer_type,
+            "pa_with_orig": pa_with_orig
         } for code in codes]
     indexed_tasks = list(enumerate(tasks))
     if random_order:
@@ -91,10 +97,17 @@ def main(args):
         model_inputs = []   # for non-remote
         messages_list = []  # for remote
         prefixes = []
-        tokenizer = AutoTokenizer.from_pretrained(args.model_path, trust_remote_code=True)
+        tokenizer_path = args.tokenizer if args.tokenizer else args.model_path
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
         if args.template_name:
             with open(join("templates", args.template_name + ".json"), mode='r') as f:
                 template = json.loads(f.read())
+            template_examples = []
+        if args.template_example:
+            with open(join("templates", "examples", args.template_example + ".jsonl"), mode='r') as f:
+                for line in f:
+                    template_examples.append(json.loads(line))
+            template_examples = template_examples[:args.n_shot]
         for data in data_list:
             header = data.get('header', LEAN4_DEFAULT_HEADER)
             if args.proofaug and 'smt' in args.hammer_type:
@@ -109,24 +122,20 @@ def main(args):
             else:
                 problem = '[[Informal problem is not available]]'
 
-            # if args.template_name:  #  or args.kimina_prompt
-                # we provide the following fields:
-                # problem, informal_prefix, header, formal statement
-                # currently do not support few-shot
+            # we provide the following fields:
+            # problem, informal_prefix, header, formal statement
+            # currently do not support few-shot
             if args.template_name:
                 messages = []
                 if "system" in template and template["system"]:
                     messages.append({"role": "system", "content": template["system"]})
-                messages.append({"role": "user", "content": template["user"].format(problem=problem, informal_prefix=informal_prefix, header=header, formal_statement=formal_statement)})
-                # else: # TODO: to be legacy
-                #     prompt = "Think about and solve the following problem step by step in Lean 4."
-                #     prompt += f"\n# Problem: {problem}"
-                #     prompt += f"\n# Formal statement:\n```lean4\n{header}{formal_statement}\n```\n"
-                #     messages = [
-                #         {"role": "system", "content": "You are an expert in mathematics and Lean 4."},
-                #         {"role": "user", "content": prompt}
-                #     ]                    
+                for example in template_examples:
+                    messages.append({"role": "user", "content": template["user"].format(**example)})
+                    messages.append({"role": "assistant", "content": template["assistant"].format(**example)})
+                
+                messages.append({"role": "user", "content": template["user"].format(problem=problem, informal_prefix=informal_prefix, header=header, formal_statement=formal_statement)})            
                 messages_list.append(messages)
+                prefixes.append(f"{header}{formal_statement}".split(":=")[0])
                 # TODO: use model.chat to replace model_inputs
                 text = tokenizer.apply_chat_template(
                     messages,
@@ -134,7 +143,7 @@ def main(args):
                     add_generation_prompt=True
                 )
                 model_inputs.append(text)
-                prefixes.append(f"{header}{formal_statement}".split(":=")[0])
+                
             else:   # TODO: to be legacy by writing a jinja chat_template for this openrlhf template
                 model_inputs.append(f"Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}")
                 prefixes.append(f"{header}{informal_prefix}{formal_statement}".split(":=")[0])
@@ -154,26 +163,43 @@ def main(args):
         
         # generate the model_outputs
         if args.use_remote_llm:
-            import openai
             client = openai.OpenAI(api_key=args.api_key, base_url=args.base_url)
-            model_outputs = []  # list[list[str]]
-            for messages in messages_list:
-                client.responses.create(
-                    model=args.model_path
-                )
-                response = client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=messages,
-                    max_tokens=max_tokens,
-                    temperature=args.temperature,
-                    n=args.n,
-                    top_p=0.95
-                )
-                model_outputs.append([response.choices[i].message.content for i in range(args.n)])
+            e = ThreadPoolExecutor(max_workers=args.max_requests_llm)
+            futures = []
+            kwargs = {
+                "model": args.model_path,
+                "max_tokens": max_tokens,
+                "temperature": args.temperature,
+                "n": args.n,
+            }
+            if args.top_p > 0:
+                kwargs["top_p"] = args.top_p
+            
+            def post_request(messages):
+                try:
+                    response = client.chat.completions.create(
+                        messages=messages,
+                        **kwargs
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    logger.error(f"Error posting request: {e}")
+                    return None
+
+            futures = [e.submit(post_request, messages) for messages in messages_list]
+            future_to_index = {future: idx for idx, future in enumerate(futures)}
+            model_outputs = [None] * len(messages_list)
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Generating model outputs"):
+                idx = future_to_index[future]
+                response_content = future.result()
+                if response_content is not None:
+                    model_outputs[idx] = [response_content]
+                else:
+                    model_outputs[idx] = ["Request failed."] * args.n
         else:
             # TODO: find how can we use the LLM class for chat
             # it seems that model.chat is OK but we need to finish the above
-            sampling_params = SamplingParams(temperature=args.temperature, max_tokens=max_tokens, top_p=0.95, n=args.n)
+            sampling_params = SamplingParams(temperature=args.temperature, max_tokens=max_tokens, top_p=args.top_p, n=args.n)
             model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=max_model_len, gpu_memory_utilization=args.gpu_memory_utilization)
             # responses = model.chat(messages_list, sampling_params, use_tqdm=True)
             # model_outputs = [[response.choices[i].message.content for i in range(args.n)] for response in responses]
@@ -185,7 +211,7 @@ def main(args):
         to_inference_codes = []
         os.makedirs(args.output_dir, exist_ok=True)
         for i in range(len(data_list)):
-            data_list[i]["model_input"] = model_inputs[i]
+            data_list[i]["messages"] = messages_list[i] if args.template_name else model_inputs[i]
             data_list[i]["model_outputs"] = model_outputs[i]
             extract_prefix = str() if args.template_name else model_inputs[i]
             prefix = prefixes[i]
@@ -208,7 +234,7 @@ def main(args):
                 f.write('\n')
 
     # Step 2: Compile
-    if args.proofaug:
+    if args.proofaug_legacy: # before 0426
         df= pd.DataFrame(to_inference_codes)
         # get a dict that maps name to list of codes
         name_to_codes = df.groupby("name")["code"].apply(list).to_dict()
@@ -216,7 +242,7 @@ def main(args):
         for name, codes in name_to_codes.items():
             extended_codes = set()
             for code in codes:
-                if args.proofaug and 'smt' in args.hammer_type:
+                if 'smt' in args.hammer_type:
                     code = "import Smt\nimport Smt.Real\n" + code
                 semi_proofs = get_semi_proofs(code, block_threshold=10)
                 if args.hammer_type in ['smt', 'hint', 'my_hint']:
@@ -240,7 +266,8 @@ def main(args):
     
     print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
-        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path))
+        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, 
+        args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.hammer_type, args.pa_with_orig))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -277,8 +304,12 @@ if __name__ == "__main__":
     parser.add_argument('-c', '--cpu', default=24, type=int)
     parser.add_argument('-g', '--gpu', default=1, type=int)
     parser.add_argument('-f', '--field', default="complete", choices=["complete", "pass"], type=str)
+    parser.add_argument('--tokenizer', type=str, default=None)
     parser.add_argument('--use_remote_llm', action='store_true', default=False)
+    parser.add_argument('--max_requests_llm', default=16, type=int)
     parser.add_argument('--template_name', type=str, default=None)
+    parser.add_argument('--template_example', type=str, default=None)
+    parser.add_argument('--n_shot', type=int, default=1)
     parser.add_argument('--base_url', default=None, type=str)
     parser.add_argument('--api_key', default=None, type=str)
     parser.add_argument('--max_tokens', default=2048, type=int)
@@ -288,16 +319,19 @@ if __name__ == "__main__":
     parser.add_argument('--seed', default=1, type=int)
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
+    parser.add_argument('--top_p', default=0.95, type=float)
     parser.add_argument('--timeout', default=300, type=int)
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
     parser.add_argument('--use_existing_code', type=str, default=None)
-    parser.add_argument('--hammer_type', type=str, default='my_hint', choices=['smt', 'smt_aster', 'hint', 'my_hint'])
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
     parser.add_argument('--use_pty', action='store_true', default=False)
+    parser.add_argument('--hammer_type', type=str, default='my_hint', choices=['smt', 'smt_aster', 'hint', 'my_hint'])
     parser.add_argument('--proofaug', action='store_true', default=False)
+    parser.add_argument('--pa_with_orig', action='store_true', default=False)
+    parser.add_argument('--proofaug_legacy', action='store_true', default=False)
     parser.add_argument('--pty_restart_count', default=100, type=int)
     parser.add_argument('--random_order', action='store_true', default=False)
     parser.add_argument('--lean_workspace', type=str, default='mathlib4/')

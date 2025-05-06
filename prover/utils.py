@@ -22,6 +22,12 @@ DEFAULT_REPL_PATH = f'{PROJ_DIR}/repl/.lake/build/bin/repl'
 DEFAULT_LEAN_WORKSPACE = f'{PROJ_DIR}/mathlib4/'
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
+HINT_DICT = {
+    'smt': r"smt",
+    'hint': r"hint",
+    'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
+}
+
 
 def non_cot_prompt(data):
     return "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}".format(
@@ -90,7 +96,7 @@ def load_jsonl_objects(input_path):
 
 def extract_code(text: str, strict: bool = False) -> str:
     code = None
-    pattern = r'```lean4\n(.*?)\n```'
+    pattern = r'```lean4?\n(.*?)\n```'
     last_match = None
     for match in re.finditer(pattern, text, re.DOTALL):
         last_match = match # Keep updating last_match with the latest match found
@@ -175,16 +181,23 @@ def remove_lean_comments(code: str, normalize: bool = False) -> str:
     return "\n".join(line for line in lines if line.strip())
 
 # TODO: make it legacy. do not rely on line analysis
-def is_statement(line: str) -> bool:
-    """starting by have, theorem, example, def exercise"""
-    keywords = ["have", "theorem", "example", "def exercise"]
-    return any(line.strip().startswith(kw) for kw in keywords)
+def statement_starts(snippet: str) -> bool:
+    """starting by Lean definition-like commands"""
+    keywords = ["have", "theorem", "example", "abbrev", "opaque", "def exercise"]
+    return any(snippet.strip().startswith(kw) for kw in keywords)
+
+def analyzable(snippet: str) -> bool:
+    """ending by := by. while := and by not in the same line is valid in Lean, we require in proofaug so."""
+    return re.search(r':=\s*by', snippet, re.DOTALL) is not None
 
 def has_statement(code: str) -> bool:
     """Check if the code has any statement."""
     lines = code.splitlines()
-    return any(is_statement(line) for line in lines)
+    return any(statement_starts(line) for line in lines)
 
+def n_indent(line: str) -> int:
+    """Return the number of indentations in the line."""
+    return len(line) - len(line.lstrip())
 
 def find_blocks(code: str) -> list[tuple[int, int]]:
     """
@@ -211,7 +224,7 @@ def find_blocks(code: str) -> list[tuple[int, int]]:
             stripped_line = line.lstrip()
             current_indent = len(line) - len(stripped_line)
             # Look for lines that start with "have" or "theorem" and contain "by"
-            if is_statement(stripped_line):
+            if statement_starts(stripped_line):
                 start_line = i
                 block_indent = current_indent
                 i += 1
@@ -361,12 +374,26 @@ def compare_compilation_summaries(
     merged_summary = pd.merge(summary_pa, summary_f2f, on='name', suffixes=('_pa', '_f2f'))
 
     # Find the pa correct but f2f incorrect
-    merged_summary['difference'] = (merged_summary['correct_pa'] > 0) & (merged_summary['correct_f2f'] == 0)
+    merged_summary['pa_unique_correct'] = (merged_summary['correct_pa'] > 0) & (merged_summary['correct_f2f'] == 0)
+    merged_summary['pa_unique_incorrect'] = (merged_summary['correct_pa'] == 0) & (merged_summary['correct_f2f'] > 0)
 
     # Filter the results to show only the differences
-    differences = merged_summary['difference']
-    print(f"{pa_name} correct but {ref_name} incorrect:\n {differences.sum()}")
-    return differences
+    print(f"{pa_name} correct but {ref_name} incorrect:\n {merged_summary['pa_unique_correct'].sum()}")
+    print(f"{pa_name} incorrect but {ref_name} correct:\n {merged_summary['pa_unique_incorrect'].sum()}")
+
+    logs = ""
+    # logs include pa unique incorrect list and pa unique correct list
+    logs += f"{pa_name} unique incorrect:\n"
+    logs += f"{merged_summary[merged_summary['pa_unique_incorrect']]['name'].tolist()}\n"
+    logs += f"{pa_name} unique correct:\n"
+    logs += f"{merged_summary[merged_summary['pa_unique_correct']]['name'].tolist()}\n"
+    
+    log_path = f"logs/{pa_name}_{ref_name}_compilation_summary.txt"
+    os.makedirs("logs", exist_ok=True)
+    with open(log_path, "a") as f:
+        f.write(logs)
+
+    return merged_summary
 
 def dataset2prompt_ds(jsonl_path: str) -> Dataset:
     """
@@ -411,15 +438,16 @@ def result2leanfiles(
                     f.write(random.choice(codes))
 
 
-def to_command(code, env=None, proofState=None, mode="cmd", verbose=True):
-    if mode == "cmd":
-        cmd = {"cmd": code}
-    elif mode == "tactic":
-        cmd = {"tactic": code}
+def to_command(code, env=None, mode="cmd", proofState=None, sorries=None, verbose=False):
+    cmd = {}
+    code_key = "cmd" if proofState is None else "tactic"
+    cmd[code_key] = code
     if env is not None:
         cmd["env"] = env
     if proofState is not None:
         cmd["proofState"] = proofState
+    if sorries is not None: # "grouped" or "individual"
+        cmd["sorries"] = sorries
     if verbose:
         print(json.dumps(cmd, ensure_ascii=False))
     return cmd
