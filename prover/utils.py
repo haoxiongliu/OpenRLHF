@@ -25,7 +25,11 @@ LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats
 HINT_DICT = {
     'smt': r"smt",
     'hint': r"hint",
-    'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
+    'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith",
+    'aesop': r"try aesop",
+    'omega': r"try omega",
+    'nlinarith': r"try nlinarith",
+    'ring_nf': r"try ring_nf",
 }
 
 
