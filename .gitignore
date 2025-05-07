@@ -166,4 +166,6 @@ wandb/*
 wandb
 results/*
 results
+models/
+models
 prover/lean/verifier_debug.py
