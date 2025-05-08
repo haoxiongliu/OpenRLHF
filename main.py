@@ -7,7 +7,7 @@ Usage:
 """
 import sys
 import inspect
-from prover.utils import compare_compilation_summaries
+from prover.utils import compare_compilation_summaries, get_cumulative_pass
 
 # Define your commands here
 def foo(a, b, flag=False):
@@ -24,6 +24,7 @@ commands = {
     'foo': foo,
     'bar': bar,
     'compare_compilation_summaries': compare_compilation_summaries,
+    'get_cumulative_pass': get_cumulative_pass,
 }
 
 def main():
@@ -87,8 +88,8 @@ def main():
 
     # Execute the command function
     result = func(**kwargs)
-    if result is not None:
-        print(result)
+    # if result is not None:
+    #     print(result)
 
 if __name__ == '__main__':
     main() 

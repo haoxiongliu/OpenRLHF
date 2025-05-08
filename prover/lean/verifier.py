@@ -226,8 +226,10 @@ class Lean4ServerProcess(mp.Process):
         pa_with_orig: bool=False,
         hammer_type: str='my_hint',
     ):
+        global hammer_count
         start_time = time.time()
         system_messages = ''
+        hammer_count = 0  # Initialize hammer_count at the start
         try:
             if proofaug:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
@@ -240,10 +242,10 @@ class Lean4ServerProcess(mp.Process):
                 block = ps.root.parts[0]
                 proofaug_index = []
                 proofState2goals = {}
-                hammer_count = 0
 
                 def verify_block(block: Block, proofState: Optional[int] = None) -> Optional[int]:
                     # handle statement individually. then the rest is handled by verify_block
+                    global hammer_count
                     init_state = proofState
                     sttm_part = block.parts[0]
                     assert sttm_part.category == 'statement' # this shoule be asserted by _analyze
@@ -261,7 +263,7 @@ class Lean4ServerProcess(mp.Process):
 
                     if errors:
                         block.state = BlockState.STTM_FAILED
-                        return init_state
+                        return init_state, result
                     if proofState is None:
                         proofState = result['sorries'][0]['proofState'] # since we used grouped, there is only 1
                         proofState2goals[proofState] = result['sorries'][0]['goals']

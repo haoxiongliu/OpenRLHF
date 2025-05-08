@@ -13,6 +13,8 @@ import re
 import random
 import pandas as pd
 from datasets import load_dataset, Dataset
+import glob
+import csv
 
 
 HOME_DIR = os.path.expanduser('~')
@@ -26,7 +28,9 @@ HINT_DICT = {
     'smt': r"smt",
     'hint': r"hint",
     'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith",
+    "my_hint_v0.1": r"try field_simp [*] at *; try norm_num [*]; try nlinarith",
     'aesop': r"try aesop",
+    'aesop_v0.1': r"try aesop; try norm_num [*]",
     'omega': r"try omega",
     'nlinarith': r"try nlinarith",
     'ring_nf': r"try ring_nf",
@@ -398,6 +402,72 @@ def compare_compilation_summaries(
         f.write(logs)
 
     return merged_summary
+
+def get_cumulative_pass(
+    csv_path_pattern: str = "results/minif2f/Kimina-Prover-Preview-Distill-1.5B-n32-0425-kimina*/compilation_summary.csv"
+) -> dict:
+    """
+    Get the cumulative pass rate of the given csv files using the csv library.
+    Returns a dict containing problems that are incorrect in base_path but correct in other files.
+    """
+    
+    # Find all matching CSV files
+    csv_paths = glob.glob(csv_path_pattern)
+    
+    # Find the shortest path as base
+    csv_paths = sorted(csv_paths, key=len)
+    base_path = csv_paths[0]
+    print(f"Base path: {base_path}")
+    print(f"Found {len(csv_paths)} CSV files")
+    
+    # Dictionary to store results: name -> {path -> correct}
+    problem_results = {}
+    
+    # Read all CSV files
+    for path in csv_paths:
+        with open(path, 'r', newline='') as f:
+            reader = csv.DictReader(f, delimiter='\t')
+            for row in reader:
+                name = row['name']
+                correct = int(row['correct'])
+                
+                if name not in problem_results:
+                    problem_results[name] = {}
+                
+                problem_results[name][path] = correct
+    
+    # Count problems correct in any file
+    any_correct = []
+    base_incorrect_others_correct = []
+    
+    for name, results in problem_results.items():
+        # Check if correct in any file
+        is_correct_anywhere = any(results.get(path, 0) > 0 for path in csv_paths)
+        
+        # Check if incorrect in base but correct elsewhere
+        is_incorrect_in_base = base_path in results and results[base_path] == 0
+        is_correct_elsewhere = any(path != base_path and results.get(path, 0) > 0 for path in csv_paths)
+        
+        if is_correct_anywhere:
+            any_correct.append(name)
+        
+        if is_incorrect_in_base and is_correct_elsewhere:
+            base_incorrect_others_correct.append(name)
+    
+    # Print results
+    print("\nProblems incorrect in base_path but correct in other files:")
+    for name in base_incorrect_others_correct:
+        print(name)
+    
+    print(f"\nTotal number of such problems: {len(base_incorrect_others_correct)}")
+    print(f"Total number of problems correct in at least one file: {len(any_correct)}")
+    
+    return {
+        "base_incorrect_others_correct": base_incorrect_others_correct,
+        "any_correct": any_correct,
+        "problem_results": problem_results
+    }
+
 
 def dataset2prompt_ds(jsonl_path: str) -> Dataset:
     """

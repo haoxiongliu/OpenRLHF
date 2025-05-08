@@ -168,4 +168,6 @@ results/*
 results
 models/
 models
+data/
+data
 prover/lean/verifier_debug.py

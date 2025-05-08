@@ -328,7 +328,7 @@ if __name__ == "__main__":
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
     parser.add_argument('--use_pty', action='store_true', default=False)
-    parser.add_argument('--hammer_type', type=str, default='my_hint', choices=['smt', 'smt_aster', 'hint', 'my_hint'])
+    parser.add_argument('--hammer_type', type=str, default='my_hint', help="see hint_dict in utils.py for available options")
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pa_with_orig', action='store_true', default=False)
     parser.add_argument('--proofaug_legacy', action='store_true', default=False)
