@@ -34,6 +34,7 @@ HINT_DICT = {
     'omega': r"try omega",
     'nlinarith': r"try nlinarith",
     'ring_nf': r"try ring_nf",
+    'simp_all': r"try simp_all",
 }
 
 
@@ -525,6 +526,20 @@ def to_command(code, env=None, mode="cmd", proofState=None, sorries=None, verbos
     if verbose:
         print(json.dumps(cmd, ensure_ascii=False))
     return cmd
+
+
+def is_error_message(message: str) -> bool:
+    """
+    Check if the message is an error message.
+    """
+    return "error" in message.lower()
+
+def has_unrecoverable_error(messages: list[str]) -> bool:
+    """
+    Check if the messages contain any unrecoverable errors.
+    """
+    return any(re.search(r"[tT]imeout", message) for message in messages)
+
 
 if __name__ == "__main__":
     import argparse

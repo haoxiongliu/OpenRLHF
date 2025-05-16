@@ -19,7 +19,7 @@ import openai
 
 
 async def compile_codes(
-    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, hammer_type='my_hint', pa_with_orig=False
+    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False, args=None
 ):
     lean4_scheduler = Lean4ServerScheduler(
         max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
@@ -29,7 +29,8 @@ async def compile_codes(
             "ast": ast,
             "tactics": tactics,
             "proofaug": proofaug,
-            "hammer_type": hammer_type,
+            "hammer_type": args.hammer_type,
+            "hammer_list": args.hammer_list,
             "pa_with_orig": pa_with_orig
         } for code in codes]
     indexed_tasks = list(enumerate(tasks))
@@ -110,7 +111,7 @@ def main(args):
             template_examples = template_examples[:args.n_shot]
         for data in data_list:
             header = data.get('header', LEAN4_DEFAULT_HEADER)
-            if args.proofaug and 'smt' in args.hammer_type:
+            if args.proofaug and any('smt' in hammer for hammer in args.hammer_list):
                 header = "import Smt\nimport Smt.Real\n" + header
             formal_statement = data['formal_statement'] # until := by\n (or no \n, it depends)
             informal_prefix = data.get('informal_prefix', str())
@@ -137,10 +138,17 @@ def main(args):
                 messages_list.append(messages)
                 prefixes.append(f"{header}{formal_statement}".split(":=")[0])
                 # TODO: use model.chat to replace model_inputs
+                if args.chat_template_fp:
+                    with open(args.chat_template_fp, 'r') as f:
+                        chat_template = json.load(f)
+                else:
+                    chat_template = None
+
                 text = tokenizer.apply_chat_template(
                     messages,
                     tokenize=False,
-                    add_generation_prompt=True
+                    add_generation_prompt=True,
+                    chat_template=chat_template
                 )
                 model_inputs.append(text)
                 
@@ -181,7 +189,8 @@ def main(args):
                         messages=messages,
                         **kwargs
                     )
-                    return response.choices[0].message.content
+                    return [choice.message.content for choice in response.choices]
+                    # return response.choices[0].message.content
                 except Exception as e:
                     logger.error(f"Error posting request: {e}")
                     return None
@@ -193,7 +202,7 @@ def main(args):
                 idx = future_to_index[future]
                 response_content = future.result()
                 if response_content is not None:
-                    model_outputs[idx] = [response_content]
+                    model_outputs[idx] = response_content
                 else:
                     model_outputs[idx] = ["Request failed."] * args.n
         else:
@@ -234,40 +243,12 @@ def main(args):
                 f.write('\n')
 
     # Step 2: Compile
-    if args.proofaug_legacy: # before 0426
-        df= pd.DataFrame(to_inference_codes)
-        # get a dict that maps name to list of codes
-        name_to_codes = df.groupby("name")["code"].apply(list).to_dict()
-        to_inference_codes = []
-        for name, codes in name_to_codes.items():
-            extended_codes = set()
-            for code in codes:
-                if 'smt' in args.hammer_type:
-                    code = "import Smt\nimport Smt.Real\n" + code
-                semi_proofs = get_semi_proofs(code, block_threshold=10)
-                if args.hammer_type in ['smt', 'hint', 'my_hint']:
-                    hint_dict = {
-                        'smt': r"smt",
-                        'hint': r"hint",
-                        'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith"
-                    }
-                    omni_tactic = hint_dict[args.hammer_type]
-                    subst_proofs = [code.replace('sorry', omni_tactic) for code in semi_proofs]
-                    extended_codes.update(subst_proofs)
-                elif args.hammer_type == 'smt_aster':
-                    for semi_proof in semi_proofs:
-                        subst_proof = smt_aster(semi_proof)
-                        extended_codes.add(subst_proof)
-                else:
-                    raise ValueError(f"Invalid hammer type: {args.hammer_type}")
-            to_inference_codes += [{"name": name, "code": code} for code in extended_codes]
-
     codes = [code["code"] for code in to_inference_codes]
     
     print(f"Compiling {len(codes)} codes")
     outputs_list = asyncio.run(compile_codes(
         codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, 
-        args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.hammer_type, args.pa_with_orig))
+        args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig, args))
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -279,17 +260,19 @@ def main(args):
     # Step 3: Summarize
     result, df_grp = summarize_results(to_inference_codes, args.field)
     summary_path = f'{args.output_dir}/compilation_summary.json'
+    hammers = args.hammer_list if args.hammer_list else [args.hammer_type]
     infos = {
         "model": args.model_path,
         "n": args.n,
-        "timestamp": datetime.now().strftime("%m%d-%H%M")
+        "timestamp": datetime.now().strftime("%m%d-%H%M"),
+        "hammers": hammers
     }
     result.update(infos)
     with open(args.log_file, "a") as f:
         f.write(f"{result}\n")
     with open(summary_path, "w") as f:
         json.dump(result, f)
-    
+    print(f"{summary_path}")
     df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
     print(result)
 
@@ -309,6 +292,7 @@ if __name__ == "__main__":
     parser.add_argument('--max_requests_llm', default=16, type=int)
     parser.add_argument('--template_name', type=str, default=None)
     parser.add_argument('--template_example', type=str, default=None)
+    parser.add_argument('--chat_template_fp', type=str, default=None)
     parser.add_argument('--n_shot', type=int, default=1)
     parser.add_argument('--base_url', default=None, type=str)
     parser.add_argument('--api_key', default=None, type=str)
@@ -327,8 +311,10 @@ if __name__ == "__main__":
     parser.add_argument('--use_existing_code', type=str, default=None)
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
-    parser.add_argument('--use_pty', action='store_true', default=False)
-    parser.add_argument('--hammer_type', type=str, default='my_hint', help="see hint_dict in utils.py for available options")
+    parser.add_argument('--use_pty', action='store_true', default=True)
+    parser.add_argument('--nouse_pty', dest='use_pty', action='store_false', default=False)
+    parser.add_argument('--hammer_type', type=str, default=None, help="see hint_dict in utils.py for available options")
+    parser.add_argument('--hammer_list', nargs='+', default=None)
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pa_with_orig', action='store_true', default=False)
     parser.add_argument('--proofaug_legacy', action='store_true', default=False)

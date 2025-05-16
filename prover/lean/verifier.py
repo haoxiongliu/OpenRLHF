@@ -15,17 +15,19 @@ import signal
 import resource
 import errno
 import re
+import itertools
 from typing import Optional
-
+from copy import deepcopy
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
-from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, HINT_DICT, n_indent
+from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, HINT_DICT, n_indent, is_error_message
 from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
 
 
 def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
-                      verbose=False, timeout=300, allTactics=False, ast=False, premises=False, tactics=False):
+                      verbose=False, timeout=300, allTactics=False, ast=False, premises=False, tactics=False,
+                      repl_path=DEFAULT_REPL_PATH):
     """Standalone verification function that creates a new repl process for each verification."""
     command = dict(cmd=code, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
     if last_env is not None:
@@ -37,7 +39,8 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     system_messages = ''
     try:
         outputs = subprocess.run(
-            [lake_path, "exe", 'repl'], 
+            # [lake_path, "exe", 'repl'], 
+            [lake_path, "env", repl_path],
             input=message_str + "\r\n\r\n", 
             capture_output=True, 
             text=True, 
@@ -90,6 +93,7 @@ class Lean4ServerProcess(mp.Process):
         self.use_pty = use_pty
         self.pty_restart_count = pty_restart_count
         self.repl_process = None
+        self.latest_state = None
         
     def _clean_init_repl(self):
         """Create a REPL process using a pseudo-terminal"""
@@ -126,6 +130,26 @@ class Lean4ServerProcess(mp.Process):
             logger.error(f"Process {self.idx}: Failed to initialize REPL: {str(e)}", stack_info=True)
             return False
     
+    def _reset_latest_state(self):
+        self.latest_state = None
+
+    def _to_command(self,code, env=None, proofState=None, sorries=None, verbose=False):
+        if env != None:
+            state = {"env": env}
+        elif proofState != None:
+            state = {"proofState": proofState}
+        else:
+            env_keys = ["env", "proofState"]
+            state = {k: v for k, v in self.latest_state.items() if k in env_keys} if self.latest_state else {}
+        code_key = "tactic" if "proofState" in state.keys() else "cmd"
+        cmd = {code_key: code}
+        cmd.update(state)
+        if sorries is not None: # "grouped" or "individual"
+            cmd["sorries"] = sorries
+        if verbose:
+            print(json.dumps(cmd, ensure_ascii=False))
+        return cmd
+    
     def _set_raw_mode(self, fd):
         """Set terminal to raw mode for better process interaction"""
         try:
@@ -140,8 +164,7 @@ class Lean4ServerProcess(mp.Process):
         """Initialize the environment for a given header"""
         if header in self.header_dict:
             return self.header_dict[header]
-        command = to_command(header, env=None, mode="cmd")
-        result = self._send_command_to_repl(command)
+        result = self._send_command_to_repl(to_command(header, env=None))
         if 'env' not in result:
             messages = result.get('messages', [])   
             logger.debug(f"Process {self.idx}: Failed to initialize {header=} with {messages=}", stack_info=False)
@@ -169,12 +192,10 @@ class Lean4ServerProcess(mp.Process):
                 logger.warning(f"Non-read buffer data: {last_chunk}")
                 
             while True:
-                # Handle timeout
                 remaining = max(0.1, self.timeout - (time.time() - start_time))
                 ready, _, _ = select.select([self.master_fd], [], [], remaining)
                 if not ready:
-                    # seems to be the cause of misplaced timeout
-                    raise TimeoutError(f"REPL process timeout after {self.timeout} seconds")
+                    raise TimeoutError(f"error: REPL process timeout after {self.timeout} seconds")
                 
                 # Read chunk
                 try:
@@ -207,14 +228,26 @@ class Lean4ServerProcess(mp.Process):
             
             try:
                 response_obj = json.loads(response.decode())
+                if 'proofState' in response_obj:
+                    self.latest_state = {"proofState": response_obj['proofState']}
+                elif 'sorries' in response_obj:
+                    self.latest_state = response_obj['sorries'][0]
+                elif 'env' in response_obj:
+                    self.latest_state = {"env": response_obj['env']}
+
                 return response_obj
             except Exception as e:
-                return {"messages": [{"data": str(e), "severity": "error"}]}
+                return {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
             
         except Exception as e:
             self._clean_init_repl()
-            return {"messages": [{"data": str(e), "severity": "error"}]}
+            return {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
     
+    def repl_run(self, code, env=None, proofState=None, sorries=None, verbose=False):
+        cmd = self._to_command(code, env, proofState, sorries, verbose)
+        return self._send_command_to_repl(cmd)
+
+
     def _verify_lean4_with_persistent_repl(
         self, 
         code: str, 
@@ -224,7 +257,9 @@ class Lean4ServerProcess(mp.Process):
         tactics: bool=False, 
         proofaug: bool=False,
         pa_with_orig: bool=False,
-        hammer_type: str='my_hint',
+        hammer_type: Optional[str]=None,
+        hammer_list: Optional[list[str]]=None,
+        sorry_mode: str='individual',   # 'individual' or 'grouped'
     ):
         global hammer_count
         start_time = time.time()
@@ -233,44 +268,48 @@ class Lean4ServerProcess(mp.Process):
         try:
             if proofaug:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
-                hint = HINT_DICT[hammer_type]
-                header, body = split_header_body(code, remove_comments=False)
+                if not hammer_list:
+                    hammers = [HINT_DICT[hammer_type]]
+                else:
+                    hammers = [HINT_DICT[ht] for ht in hammer_list]
+                header, body = split_header_body(code, remove_comments=True)
                 if header is not None:
                     init_env = self._initialize_header_env(header)  # can be None
                 
-                ps = ProposalStructure(body)
-                block = ps.root.parts[0]
-                proofaug_index = []
-                proofState2goals = {}
+                prop_struct = ProposalStructure(body)
+                block = prop_struct.root.parts[0]
+                proofaug_index = dict()
+                ps2goals = {None: []}
 
-                def verify_block(block: Block, proofState: Optional[int] = None) -> Optional[int]:
+                def verify_block(block: Block, ps: Optional[int] = None) -> Optional[int]:
                     # handle statement individually. then the rest is handled by verify_block
                     global hammer_count
-                    init_state = proofState
-                    sttm_part = block.parts[0]
-                    assert sttm_part.category == 'statement' # this shoule be asserted by _analyze
-                    code = sttm_part.content
+                    init_ps = ps
+                    init_goals = ps2goals[ps]
+                    part = block.parts[0]
+                    assert part.category == 'statement' # this shoule be asserted by _analyze
+                    code = part.content
                     if code.strip().endswith('by'):
                         code += ' sorry'
-                    if proofState is None:  # block.level == 0
-                        cmd = to_command(code, env=init_env, sorries="grouped", mode="cmd")
+                    if ps is None:  # block.level == 0
+                        cmd = to_command(code, env=init_env, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd)
                         errors = [m for m in result['messages'] if m['severity'] == 'error']
                     else:
-                        cmd = to_command(code, proofState=proofState, sorries="grouped", mode="tactic")  
+                        cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd)
-                        errors = [result['message']] if 'error' in result.get('message', '') else []
+                        errors = [result['message']] if is_error_message(result.get('message', '')) else []
 
                     if errors:
                         block.state = BlockState.STTM_FAILED
-                        return init_state, result
-                    if proofState is None:
-                        proofState = result['sorries'][0]['proofState'] # since we used grouped, there is only 1
-                        proofState2goals[proofState] = result['sorries'][0]['goals']
+                        return init_ps, result
+                    if ps is None:
+                        ps = result['sorries'][0]['proofState']
+                        ps2goals[ps] = result['sorries'][0]['goals']
                     else:
-                        proofState = result['proofState']
-                        proofState2goals[proofState] = result['goals']
-                    sttm_state = proofState
+                        ps = result['proofState']
+                        ps2goals[ps] = result['goals']
+                    sttm_ps = ps
 
                     # handle the rest of the block
                     rest_parts = block.parts[1:] if len(block.parts) > 1 else []
@@ -279,58 +318,74 @@ class Lean4ServerProcess(mp.Process):
                         if isinstance(part, Snippet):
                             code = part.content
                             if part.category == 'statement':
-                                if code.strip().endswith('by'):
-                                    code += ' sorry'
-                                cmd = to_command(code, proofState=proofState, sorries="grouped", mode="tactic")
-                                result = self._send_command_to_repl(cmd)
-                                errors = [result['message']] if 'error' in result.get('message', '') else []
-                                if errors:
-                                    block.state = BlockState.WAIT_SORRY
-                                    break
-                                proofState = result['proofState']
-                                sttm_state = proofState
-                                proofState2goals[proofState] = result['goals']
+                                raise ValueError(f"Statement occur in the rest parts of {block=}")
                             else:
-                                cmd = to_command(code, proofState=proofState, sorries="grouped", mode="tactic")
+                                cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                                 result = self._send_command_to_repl(cmd)
-                                errors = [result['message']] if 'error' in result.get('message', '') else []
+                                errors = [result['message']] if is_error_message(result.get('message', '')) else []
                                 if errors:
                                     block.state = BlockState.WAIT_SORRY
                                     break
-                                proofState = result['proofState']
-                                proofState2goals[proofState] = result['goals']
+                                ps = result['proofState']
+                                ps2goals[ps] = result['goals']
+                                rest_part_index += 1
 
                         elif isinstance(part, Block):
-                            proofState, result = verify_block(part, proofState)
+                            ps, result = verify_block(part, ps)
                             if part.state in [BlockState.STTM_FAILED, BlockState.SORRY_FAILED]:
                                 block.state = BlockState.WAIT_SORRY
                                 break
-                        rest_part_index += 1
-                    # use hint to try sorry
+                            rest_part_index += 1
+                    
+                    # check whether the current block is completed by checking the number of goals
+                    current_goals = ps2goals[ps]
+                    if len(current_goals) > len(init_goals):
+                        block.state = BlockState.WAIT_SORRY
+                    elif len(current_goals) < len(init_goals):
+                        raise ValueError(f"Observe {len(current_goals)=} < {len(init_goals)=} in {block=} at {part=}")
+
                     if block.state == BlockState.WAIT_SORRY or (block.level == 0 and result.get('proofStatus', None) != 'Completed'):
-                        # TODO: check this, maybe change proofState to right after the statement
-                        cmd = to_command(hint, proofState=proofState, sorries="grouped", mode="tactic")
-                        result = self._send_command_to_repl(cmd)
-                        hammer_count += 1
-                        errors = [result['message']] if 'error' in result.get('message', '') else []
-                        if errors:
-                            block.state = BlockState.SORRY_FAILED
-                            proofState = sttm_state
-                        else:
-                            # TODO: modify this magic number 2
-                            num_indent = n_indent(block.parts[0].content) + 2
-                            sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*num_indent + hint)
-                            # sttm_snippet = Snippet(block.statement + ':= by ' + hint)
-                            block._proofaug_parts = [sttm_snippet]
-                            block.state = BlockState.PASSED
-                            proofaug_index.append(block.index)
-                            proofState = result['proofState']
-                            proofState2goals[proofState] = result['goals']
+                        # two candidates: try at current proofState and try at sttm_ps, finally return to init_ps
+                        ps_cands = sorted(set([ps, sttm_ps]))
+                        cand_combs = list(itertools.product(ps_cands, hammers))
+                        for cand_i, (ps_cand, hammer) in enumerate(cand_combs):
+                            cmd = to_command(hammer, proofState=ps_cand, sorries=sorry_mode)
+                            result = self._send_command_to_repl(cmd)
+                            hammer_count += 1
+                            errors = [result['message']] if is_error_message(result.get('message', '')) else []
+                            if errors:
+                                if cand_i == len(cand_combs) - 1:
+                                    block.state = BlockState.SORRY_FAILED
+                                    ps = init_ps # set to the state before this block
+                                continue
+                            ps_new = result['proofState']
+                            ps2goals[ps_new] = result['goals']
+                            if len(ps2goals[ps_new]) == len(init_goals):
+                                ps = ps_new
+                                num_indent = n_indent(block.parts[0].content) + 2
+                                if ps_cand == sttm_ps:
+                                    sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
+                                else:
+                                    sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*num_indent + hammer)
+                                    
+                                block._proofaug_parts = [sttm_snippet]
+                                block.state = BlockState.PASSED
+                                proofaug_index[block.index] = hammer
+                                
+                                break
+
                     else:
                         block.state = BlockState.PASSED
                     if block.level == 0 and result.get('proofStatus', None) == 'Completed':
                         block.state = BlockState.COMPLETED
-                    return proofState, result
+                        verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
+                        result_verify = self._send_command_to_repl(verify_cmd)
+                        errors = [m for m in result_verify['messages'] if m['severity'] == 'error']
+                        if errors:
+                            logger.warning(f"Error in verifying the reconstructed proof {block.proofaug_content=}:\n{errors=}\nProbably bug of repl")
+                        else:
+                            logger.debug(f"Verified the reconstructed proof {block.proofaug_content=} with {proofaug_index=}")
+                    return ps, result
 
                 proofState, result = verify_block(block)
                 complete = block.state == BlockState.COMPLETED
@@ -379,7 +434,7 @@ class Lean4ServerProcess(mp.Process):
 
 
 
-        except Exception:
+        except Exception as e:
             verification_result = {
                 "pass": False,
                 "complete": False,
@@ -433,6 +488,7 @@ class Lean4ServerProcess(mp.Process):
                     logger.error(f"Error closing master_fd: {str(e)}")
                 self.master_fd = None
             self.repl_process = None
+            self.latest_state = None
             self.header_dict.clear()
 
     def run(self):
@@ -471,7 +527,7 @@ class Lean4ServerProcess(mp.Process):
                     self._clean_init_repl()
                     count = 0
             self._cleanup_repl()
-        else:   # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks
+        else:   # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks. Not supporting proofaug.
             while True:
                 inputs = self.task_queue.get()
                 if inputs is None:
@@ -480,7 +536,9 @@ class Lean4ServerProcess(mp.Process):
                     if isinstance(task, str):
                         task = dict(code=task)
                     # Directly call verify_lean4_file without any REPL state or header mechanism
-                    result = verify_lean4_file(code=task['code'], lake_path=self.lake_path, lean_workspace=self.lean_workspace, timeout=task.get('timeout', self.timeout), allTactics=task.get('allTactics', False), ast=task.get('ast', False), premises=task.get('premises', False), tactics=task.get('tactics', False))
+                    if task.get('proofaug', False):
+                        raise ValueError("Proofaug is not supported in non-PTY mode")
+                    result = verify_lean4_file(code=task['code'], lake_path=self.lake_path, lean_workspace=self.lean_workspace, timeout=task.get('timeout', self.timeout), allTactics=task.get('allTactics', False), ast=task.get('ast', False), premises=task.get('premises', False), tactics=task.get('tactics', False), repl_path=self.repl_path)
                     with self.lock:
                         self.request_statuses[request_id] = result
                         self.last_output_time.value = time.time()

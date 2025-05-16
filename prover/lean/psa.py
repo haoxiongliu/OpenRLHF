@@ -139,7 +139,7 @@ class ProposalStructure(object):
     def __init__(self, proposal: str):
         self.proposal = proposal
         self.root = None
-        self._analyze(proposal)
+        self._analyze(remove_lean_comments(proposal, normalize=False))
 
     def _analyze(self, proposal: str):
         lines = proposal.split("\n")
@@ -155,7 +155,7 @@ class ProposalStructure(object):
                 continue
             # we assume that the proof never opens a new goal by 'have' when the current same level block is not yet closed
             # determine the level and the current block
-            # 重构：只对有:= by的分析，然后遇到
+            # TODO: reconstruct
             indent = n_indent(line)
             if indent not in indent2level:
                 indent2level[indent] = len(indent2level)
@@ -198,8 +198,11 @@ class ProposalStructure(object):
                     if n_indent(lines[i]) < indent:
                         break
                     elif n_indent(lines[i]) == indent:
-                        special_indicators = ['|', '<;>']
-                        if not any(lines[i].strip().startswith(indicator) for indicator in special_indicators):
+                        special_start_indicators = ['|', '<;>', ')']
+                        special_end_indicators = ['|', '<;>', '(']
+                        
+                        if not ( any(lines[i].strip().startswith(indicator) for indicator in special_start_indicators) \
+                            or any(lines[i-1].strip().endswith(indicator) for indicator in special_end_indicators)):
                             break
                     tactic_content += "\n" + lines[i]
                     i += 1
