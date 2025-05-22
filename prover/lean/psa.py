@@ -1,11 +1,5 @@
 """
 Implementation of the proposal structure analysis. 
-We do not follow what we do for Isabelle in the ProofAug paper,
-since lean tactics can be time-consuming
-Rather, we first infer from the proposal the whole structure
-(It is like AST tree but for proposal there is no guarantee we can compile)
-
-the body code is like this:
 
 theorem mathd_algebra_114 (a : ℝ) (h₀ : a = 8) :
     (16 * (a ^ 2) ^ ((1 : ℝ) / 3)) ^ ((1 : ℝ) / 3) = 4 := by
@@ -30,6 +24,39 @@ theorem mathd_algebra_114 (a : ℝ) (h₀ : a = 8) :
     norm_num
     all_goals linarith
   exact h3
+
+the root.parts[0].parts is like
+
+[-- Snippet(content=
+theorem mathd_algebra_114 (a : ℝ) (h₀ : a = 8) :
+    (16 * (a ^ 2) ^ ((1 : ℝ) / 3)) ^ ((1 : ℝ) / 3) = 4 := by), 
+-- Block(level=1, content=
+  have ha : a ^ 2 = 64 := by
+    rw [h₀]
+    norm_num), -- Block(level=1, content=
+  have h1 : (a ^ 2) ^ ((1 : ℝ) / 3) = 4 := by
+    rw [ha]
+    have h4 : (64 : ℝ) ^ ((1 : ℝ) / 3) = 4 := by
+      rw [show (64 : ℝ) = 4 ^ (3 : ℝ) by norm_num]
+      rw [←Real.rpow_mul]
+      norm_num
+      all_goals linarith
+    exact h4), 
+-- Block(level=1, content=
+  have h2 : 16 * (a ^ 2) ^ ((1 : ℝ) / 3) = 64 := by
+    rw [h1]
+    norm_num), 
+-- Snippet(content=
+  rw [h2]), 
+-- Block(level=1, content=
+  have h3 : (64 : ℝ) ^ ((1 : ℝ) / 3) = 4 := by
+    rw [show (64 : ℝ) = 4 ^ (3 : ℝ) by norm_num]
+    rw [←Real.rpow_mul]
+    norm_num
+    all_goals linarith), 
+-- Snippet(content=
+  exact h3)]
+  
 """
 
 from __future__ import annotations
