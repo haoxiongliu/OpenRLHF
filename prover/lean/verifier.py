@@ -258,7 +258,7 @@ class Lean4ServerProcess(mp.Process):
         proofaug: bool=False,
         pa_with_orig: bool=False,
         hammer_type: Optional[str]=None,
-        hammer_list: Optional[list[str]]=None,
+        hammer_list: Optional[list[str] | str]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
     ):
         global hammer_count
@@ -271,7 +271,10 @@ class Lean4ServerProcess(mp.Process):
                 if not hammer_list:
                     hammers = [HINT_DICT[hammer_type]]
                 else:
-                    hammers = [HINT_DICT[ht] for ht in hammer_list]
+                    if isinstance(hammer_list, str):
+                        hammers = [HINT_DICT[hammer_list]]
+                    else:
+                        hammers = [HINT_DICT[ht] for ht in hammer_list]
                 header, body = split_header_body(code, remove_comments=True)
                 if header is not None:
                     init_env = self._initialize_header_env(header)  # can be None
