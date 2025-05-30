@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "proofaug": {
+      "command": "/home/user/lhx/OpenRLHF/.venv/bin/python",
+      "args": ["/home/user/lhx/OpenRLHF/mcp_server/mcp_proofaug_server.py"],
+      "cwd": "/home/user/lhx/OpenRLHF",
+      "env": {
+        "PYTHONPATH": "/home/user/lhx/OpenRLHF"
+      }
+    }
+  }
+} 
