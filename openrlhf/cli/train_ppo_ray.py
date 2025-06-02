@@ -4,12 +4,11 @@ from datetime import datetime
 import ray
 from ray.util.placement_group import placement_group
 
-from openrlhf.trainer.ppo_trainer import PPOTrainer
-from openrlhf.trainer.ray import (
+from openrlhf.trainer.ray import create_vllm_engines
+from openrlhf.trainer.ray.launcher import (
     PPORayActorGroup,
     ReferenceModelRayActor,
     RewardModelRayActor,
-    create_vllm_engines,
 )
 from openrlhf.trainer.ray.ppo_actor import ActorModelRayActor
 from openrlhf.trainer.ray.ppo_critic import CriticModelRayActor
@@ -17,6 +16,10 @@ from openrlhf.utils import get_strategy
 
 
 def train(args):
+    # initialize ray if not initialized
+    if not ray.is_initialized():
+        ray.init(runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}})
+
     # configure strategy
     strategy = get_strategy(args)
     strategy.print(args)
@@ -39,7 +42,7 @@ def train(args):
     vllm_engines = None
     if args.vllm_num_engines is not None and args.vllm_num_engines > 0:
         max_len = args.max_len if args.max_len else args.prompt_max_len + args.generate_max_len
-        if args.colocate_all_models:
+        if args.colocate_all_models and not args.async_train:
             assert (
                 args.actor_num_nodes * args.actor_num_gpus_per_node
                 == args.vllm_num_engines * args.vllm_tensor_parallel_size
@@ -48,6 +51,11 @@ def train(args):
                 f"vllm_num_engines * vllm_tensor_parallel_size, got {args.actor_num_nodes * args.actor_num_gpus_per_node} "
                 f"and {args.vllm_num_engines * args.vllm_tensor_parallel_size}"
             )
+
+        if args.agent_func_path:
+            from openrlhf.trainer.ray.vllm_engine_async import LLMRayActorAsync as LLMRayActor
+        else:
+            from openrlhf.trainer.ray.vllm_engine import LLMRayActor
 
         vllm_engines = create_vllm_engines(
             args.vllm_num_engines,
@@ -58,9 +66,11 @@ def train(args):
             args.enable_prefix_caching,
             args.enforce_eager,
             max_len,
-            pg if args.colocate_all_models else None,
+            pg if args.colocate_all_models and not args.async_train else None,
             args.vllm_gpu_memory_utilization,
             args.vllm_enable_sleep,
+            LLMRayActor,
+            args.agent_func_path,
         )
 
     actor_model = PPORayActorGroup(
@@ -69,7 +79,7 @@ def train(args):
         ActorModelRayActor,
         pg=pg,
         num_gpus_per_actor=0.2 if pg else 1,
-        ring_attn_size=args.ring_attn_size,
+        duplicate_actors=args.ring_attn_size * args.ds_tensor_parallel_size,
     )
 
     if args.init_kl_coef <= 0:
@@ -81,7 +91,7 @@ def train(args):
             ReferenceModelRayActor,
             pg=pg,
             num_gpus_per_actor=0.2 if pg else 1,
-            ring_attn_size=args.ring_attn_size,
+            duplicate_actors=args.ring_attn_size * args.ds_tensor_parallel_size,
         )
 
     if not args.colocate_all_models:
@@ -105,7 +115,7 @@ def train(args):
             CriticModelRayActor,
             pg=pg,
             num_gpus_per_actor=0.2 if pg else 1,
-            ring_attn_size=args.ring_attn_size,
+            duplicate_actors=args.ring_attn_size * args.ds_tensor_parallel_size,
         )
     else:
         critic_model = None
@@ -119,10 +129,15 @@ def train(args):
             RewardModelRayActor,
             pg=pg,
             num_gpus_per_actor=0.2 if pg else 1,
-            ring_attn_size=args.ring_attn_size,
+            duplicate_actors=args.ring_attn_size * args.ds_tensor_parallel_size,
         )
     else:
         reward_model = None
+
+    if args.async_train:
+        from openrlhf.trainer.ppo_trainer_async import PPOTrainerAsync as PPOTrainer
+    else:
+        from openrlhf.trainer.ppo_trainer import PPOTrainer
 
     # init PPO trainer (Single controller)
     ppo_trainer = PPOTrainer.remote(
@@ -204,7 +219,7 @@ if __name__ == "__main__":
         help="whether to colocate all models (including vLLM engines), if true, they will share same gpus.",
     )
 
-    # optional vLLM for text generation
+    # vLLM for text generation
     parser.add_argument(
         "--vllm_num_engines", type=int, default=None, help="number of vLLM Engines, set to 0 to disable vLLM"
     )
@@ -230,6 +245,9 @@ if __name__ == "__main__":
         default=0.95,
         help="vLLM gpu_memory_utilization",
     )
+
+    # Async training using ray
+    parser.add_argument("--async_train", action="store_true", default=False, help="Enable async training")
 
     # Checkpoints
     parser.add_argument("--eval_steps", type=int, default=-1)
@@ -269,6 +287,7 @@ if __name__ == "__main__":
         default=False,
         help="Enable sleep mode for deepspeed when using --colocate_all_models",
     )
+    parser.add_argument("--ds_tensor_parallel_size", type=int, default=1, help="DeepSpeed tensor parallel size")
 
     # packing samples using Flash Attention2
     parser.add_argument("--packing_samples", action="store_true", default=False)
@@ -283,7 +302,10 @@ if __name__ == "__main__":
     # PPO
     parser.add_argument("--save_path", type=str, default="./ckpt")
     parser.add_argument("--num_episodes", type=int, default=1)
-    parser.add_argument("--rollout_batch_size", type=int, default=1024)
+    parser.add_argument("--rollout_batch_size", type=int, default=1024, help="Batch size for make experience")
+    parser.add_argument(
+        "--vllm_generate_batch_size", type=int, default=None, help="Batch size for vLLM generating samples"
+    )
     parser.add_argument("--micro_rollout_batch_size", type=int, default=8)
     parser.add_argument("--max_epochs", type=int, default=1)
     parser.add_argument("--prompt_max_len", type=int, default=1024, help="Max tokens for each prompt")
@@ -294,7 +316,8 @@ if __name__ == "__main__":
     parser.add_argument("--l2", type=float, default=0.0, help="weight decay loss")
     parser.add_argument("--ptx_coef", type=float, default=0.05, help="PPO-ptx loss coef")
     parser.add_argument("--eps_clip", type=float, default=0.2, help="PPO clip range")
-    parser.add_argument("--value_clip", type=float, default=0.2, help="PPO value clip range")
+    parser.add_argument("--eps_clip_low_high", type=float, nargs=2, default=None, help="PPO-clip low and high")
+    parser.add_argument("--value_clip", type=float, default=0.5, help="PPO value clip range")
     parser.add_argument("--lambd", type=float, default=1, help="PPO GAE lambd")
     parser.add_argument("--gamma", type=float, default=1, help="PPO GAE gamma")
     parser.add_argument("--micro_train_batch_size", type=int, default=4, help="batch size per GPU")
@@ -330,11 +353,16 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument("--aux_loss_coef", type=float, default=0, help="MoE balancing loss")
-    parser.add_argument("--entropy_loss_coef", type=float, default=0, help="Entropy loss coef")
+    parser.add_argument(
+        "--entropy_loss_coef",
+        type=float,
+        default=None,
+        help="Entropy loss coef, set to 0 means only enable entropy logs",
+    )
     parser.add_argument("--adam_betas", type=float, nargs=2, default=(0.9, 0.95), help="Betas for Adam optimizer")
     parser.add_argument("--reward_clip_range", type=float, nargs=2, default=(-10, 10), help="Reward clip range")
 
-    # Reinforce
+    # Reinforce/GRPO, etc
     parser.add_argument(
         "--advantage_estimator",
         type=str,
@@ -368,6 +396,7 @@ if __name__ == "__main__":
     parser.add_argument("--critic_pretrain", type=str, default=None, help="HF model name or path")
     parser.add_argument("--value_head_prefix", type=str, default="score")
     parser.add_argument("--ref_reward_offload", action="store_true", default=False)
+    parser.add_argument("--agent_func_path", type=str, default=None, help="Agent script path")
 
     # Custom dataset
     parser.add_argument("--prompt_data", type=str, default=None, help="HF dataset name or path")
@@ -403,6 +432,12 @@ if __name__ == "__main__":
         default="ppo_%s" % datetime.now().strftime("%m%dT%H:%M"),
     )
 
+    # Dynamic filtering
+    parser.add_argument("--dynamic_filtering", action="store_true", default=False, help="Enable dynamic filtering")
+    parser.add_argument(
+        "--dynamic_filtering_reward_range", nargs=2, default=(0, 1), type=float, help="Dynamic filtering rewards range"
+    )
+
     # TensorBoard parameters
     parser.add_argument("--use_tensorboard", type=str, default=None, help="TensorBoard logging path")
 
@@ -415,6 +450,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Validate arguments
+    if args.eps_clip_low_high is None:
+        args.eps_clip_low_high = (args.eps_clip, args.eps_clip)
+
+    if args.agent_func_path:
+        args.remote_rm_url = "agent"
+
     if args.advantage_estimator not in ["gae"]:
         args.critic_pretrain = None
     elif args.critic_pretrain is None:
@@ -449,6 +490,12 @@ if __name__ == "__main__":
         print("Set args.vllm_enable_sleep to False when args.colocate_all_models is disabled.")
         args.vllm_enable_sleep = False
 
+    if args.colocate_all_models and args.async_train:
+        print("[Warning] Using --colocate_all_models in async RLHF only colocates DeepSpeed models.")
+
+    if args.async_train:
+        assert not args.vllm_enable_sleep, "Async RLHF is not supported with --vllm_enable_sleep."
+
     if args.eval_dataset:
         assert args.remote_rm_url, "`--eval_dataset` is only supported with `--remote_rm_url`."
 
@@ -459,9 +506,24 @@ if __name__ == "__main__":
         if args.kl_estimator not in ["k1"]:
             print(f"Recommend setting {args.kl_estimator} to 'k1' when not using KL as a loss.")
 
+    # Set vLLM generate_batch_size to rollout_batch_size if not specified
+    if not args.vllm_generate_batch_size:
+        args.vllm_generate_batch_size = args.rollout_batch_size
+
+    if args.dynamic_filtering:
+        assert (
+            args.dynamic_filtering_reward_range[0] < args.dynamic_filtering_reward_range[1]
+        ), "reward_clip_range[0] must be less than reward_clip_range[1]"
+        assert (
+            args.remote_rm_url or args.agent_func_path
+        ), "remote_rm_url or agent_func_path must be specified when using dynamic filtering"
+        assert (
+            args.n_samples_per_prompt > 1
+        ), "n_samples_per_prompt must be greater than 1 when using dynamic filtering"
+
     assert (
         args.n_samples_per_prompt * args.rollout_batch_size // args.micro_rollout_batch_size
-        >= args.actor_num_nodes * args.actor_num_gpus_per_node // args.ring_attn_size
+        >= args.actor_num_nodes * args.actor_num_gpus_per_node // args.ring_attn_size // args.ds_tensor_parallel_size
     ), "The number of sample batches must be greater than or equal to the effective number of actor processes."
 
     if args.use_ms:

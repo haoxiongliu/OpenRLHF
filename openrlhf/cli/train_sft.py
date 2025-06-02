@@ -6,9 +6,10 @@ from datetime import datetime
 from transformers.trainer import get_scheduler
 
 from openrlhf.datasets import SFTDataset
+from openrlhf.datasets.utils import blending_datasets
 from openrlhf.models import Actor
-from openrlhf.trainer import SFTTrainer
-from openrlhf.utils import blending_datasets, get_strategy, get_tokenizer
+from openrlhf.trainer.sft_trainer import SFTTrainer
+from openrlhf.utils import get_strategy, get_tokenizer
 
 
 def train(args):
@@ -61,7 +62,6 @@ def train(args):
         strategy,
         pretrain_mode=args.pretrain_mode,
         input_template=args.input_template,
-        multiple_of=args.ring_attn_size,
         multiturn=args.multiturn,
     )
     # prepare dataloader
@@ -88,7 +88,6 @@ def train(args):
             strategy,
             pretrain_mode=args.pretrain_mode,
             input_template=args.input_template,
-            multiple_of=args.ring_attn_size,
             multiturn=args.multiturn,
         )
         eval_dataloader = strategy.setup_dataloader(
@@ -185,6 +184,7 @@ if __name__ == "__main__":
     parser.add_argument("--overlap_comm", action="store_true", default=False)
     parser.add_argument("--gradient_checkpointing_use_reentrant", action="store_true", default=False)
     parser.add_argument("--disable_fast_tokenizer", action="store_true", default=False)
+    parser.add_argument("--ds_tensor_parallel_size", type=int, default=1, help="DeepSpeed Tensor parallel size")
 
     # SFT
     parser.add_argument("--max_epochs", type=int, default=2)

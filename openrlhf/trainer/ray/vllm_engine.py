@@ -1,12 +1,10 @@
 import os
 import queue
-from collections import defaultdict
 from typing import Any, List
 
 import ray
 from ray.util.placement_group import placement_group
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
-from vllm.inputs import TokensPrompt
 
 from openrlhf.utils.logging_utils import init_logger
 
@@ -22,11 +20,10 @@ def get_all_env_variables():
     return os.environ
 
 
-@ray.remote
-class LLMRayActor:
-
+class BaseLLMRayActor:
     def __init__(self, *args, bundle_indices: list = None, **kwargs):
-        noset_visible_devices = kwargs.pop("noset_visible_devices")
+        kwargs.pop("agent_func_path", None)
+        noset_visible_devices = ray_noset_visible_devices()
         if kwargs.get("distributed_executor_backend") == "ray":
             # a hack to make the script work.
             # stop ray from manipulating *_VISIBLE_DEVICES
@@ -48,16 +45,24 @@ class LLMRayActor:
 
         # Number of actors that will send prompt to this engine
         self.requests = {}
-        self.response_queues = defaultdict(queue.Queue)
-
-        import vllm
+        self.response_queues = queue.Queue()
 
         full_determinism = kwargs.pop("full_determinism", False)
-        if full_determinism or vllm.__version__ == "0.8.2":
+        if full_determinism:
             # https://github.com/vllm-project/vllm/blob/effc5d24fae10b29996256eb7a88668ff7941aed/examples/offline_inference/reproduciblity.py#L11
             os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
 
-        self.llm = vllm.LLM(*args, **kwargs)
+        self.kwargs = kwargs
+
+
+@ray.remote
+class LLMRayActor(BaseLLMRayActor):
+    def __init__(self, *args, bundle_indices: list = None, **kwargs):
+        super().__init__(*args, bundle_indices=bundle_indices, **kwargs)
+
+        import vllm
+
+        self.llm = vllm.LLM(*args, **self.kwargs)
 
     def init_process_group(self, master_address, master_port, rank_offset, world_size, group_name, backend, use_ray):
         return self.llm.collective_rpc(
@@ -80,32 +85,22 @@ class LLMRayActor:
     def wake_up(self):
         self.llm.wake_up()
 
-    def add_requests(self, actor_rank, *, sampling_params, prompt_token_ids):
+    def add_requests(self, sampling_params, prompt_token_ids):
         """
-        Save the requests from actors and generate responses when all actors have sent their requests
+        Process requests from rank0 and generate responses.
+        Since only rank0 will send requests, we don't need to track actor ranks.
         """
-        self.requests[actor_rank] = prompt_token_ids
-        num_requests = []
-        requests: list[TokensPrompt] = []
-        for actor_rank, request in self.requests.items():
-            num_requests.append((actor_rank, len(request)))
-            for r in request:
-                requests.append(TokensPrompt(prompt_token_ids=r))
+        from vllm.inputs import TokensPrompt
 
+        requests = [TokensPrompt(prompt_token_ids=r) for r in prompt_token_ids]
         responses = self.llm.generate(prompts=requests, sampling_params=sampling_params)
-        offset = 0
-        self.responses = {}
-        for actor_rank, num in num_requests:
-            self.response_queues[actor_rank].put(responses[offset : offset + num])
-            offset += num
+        self.response_queues.put(responses)
 
-        self.requests = {}
-
-    def get_responses(self, actor_rank):
+    def get_responses(self):
         """
         Return the responses for the actor with the given rank
         """
-        return self.response_queues[actor_rank].get()
+        return self.response_queues.get()
 
 
 def create_vllm_engines(
@@ -120,13 +115,14 @@ def create_vllm_engines(
     shared_pg=None,
     gpu_memory_utilization=None,
     vllm_enable_sleep=False,
+    llm_actor_cls=LLMRayActor,
+    agent_func_path=None,
 ):
     import vllm
 
-    assert vllm.__version__ >= "0.8.1", "OpenRLHF only supports vllm >= 0.8.1"
+    assert vllm.__version__ > "0.8.2", "OpenRLHF only supports vllm > 0.8.2"
 
     vllm_engines = []
-    noset_visible_devices = ray_noset_visible_devices(ray.get(get_all_env_variables.remote()))
     distributed_executor_backend = "uni" if tensor_parallel_size == 1 else "ray"
     use_hybrid_engine = shared_pg is not None
     num_gpus = int(tensor_parallel_size == 1)
@@ -153,7 +149,7 @@ def create_vllm_engines(
         )
 
         vllm_engines.append(
-            LLMRayActor.options(
+            llm_actor_cls.options(
                 num_cpus=num_gpus,
                 num_gpus=num_gpus,
                 scheduling_strategy=scheduling_strategy,
@@ -173,7 +169,7 @@ def create_vllm_engines(
                 bundle_indices=bundle_indices,
                 num_gpus=0.2 if use_hybrid_engine else 1,
                 enable_sleep_mode=vllm_enable_sleep,
-                noset_visible_devices=noset_visible_devices,
+                agent_func_path=agent_func_path,
             )
         )
 

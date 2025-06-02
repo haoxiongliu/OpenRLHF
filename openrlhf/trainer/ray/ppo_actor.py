@@ -68,7 +68,10 @@ class ActorPPOTrainer(ABC):
         self.vllm_engines = vllm_engines
         self.max_epochs = self.args.max_epochs
 
-        self.actor_loss_fn = PolicyLoss(eps_clip)
+        self.actor_loss_fn = PolicyLoss(
+            clip_eps_low=self.args.eps_clip_low_high[0],
+            clip_eps_high=self.args.eps_clip_low_high[1],
+        )
 
         # Mixtral 8x7b
         self.aux_loss = self.args.aux_loss_coef > 1e-8
@@ -80,7 +83,7 @@ class ActorPPOTrainer(ABC):
         # Init torch group for weights sync
         backend = getattr(self.strategy.args, "vllm_sync_backend", "nccl")
         self.use_cuda_ipc = False
-        if backend == "nccl" and self.strategy.args.colocate_all_models:
+        if backend == "nccl" and self.args.colocate_all_models and not self.args.async_train:
             self.use_cuda_ipc = True
 
         # Create torch group with deepspeed rank 0 and all vllm ranks
@@ -142,10 +145,11 @@ class ActorPPOTrainer(ABC):
 
     def ppo_train(self, kl_ctl: float):
         # replay buffer may be empty at first, we should rebuild at each training
+        not_shuffle = self.strategy.ring_attn_group is not None or self.args.ds_tensor_parallel_size > 1
         dataloader = DataLoader(
             self.replay_buffer,
             batch_size=self.replay_buffer.sample_batch_size,
-            shuffle=False if self.strategy.ring_attn_group is not None else True,
+            shuffle=not not_shuffle,
             drop_last=True,
             pin_memory=self.dataloader_pin_memory,
             collate_fn=self.replay_buffer.collate_fn,
@@ -211,16 +215,17 @@ class ActorPPOTrainer(ABC):
             return_output=True,
             ring_attn_group=self.strategy.ring_attn_group,
             packed_seq_lens=packed_seq_lens,
-            return_entropy=self.args.entropy_loss_coef > 1e-8,
+            return_entropy=self.args.entropy_loss_coef is not None,
         )
 
         # loss function
-        actor_loss = self.actor_loss_fn(
+        actor_loss, clip_ratio = self.actor_loss_fn(
             action_log_probs,
             old_action_log_probs,
             advantages,
             action_mask=experience.action_mask,
         )
+        experience.info["ppo_clip_ratio"] = clip_ratio.detach()
 
         if self.args.use_kl_loss:
             if self.args.init_kl_coef > 0:
@@ -241,9 +246,10 @@ class ActorPPOTrainer(ABC):
         if self.aux_loss:
             loss += output.aux_loss * self.args.aux_loss_coef
         # entropy loss
-        if self.args.entropy_loss_coef > 1e-8:
+        if self.args.entropy_loss_coef is not None:
             entropy_loss = masked_mean(output.entropy[:, -experience.action_mask.shape[1] :], experience.action_mask)
-            loss -= entropy_loss * self.args.entropy_loss_coef
+            if self.args.entropy_loss_coef != 0:
+                loss -= entropy_loss * self.args.entropy_loss_coef
 
         self.strategy.backward(loss, self.actor, self.actor_optim)
         self.strategy.optimizer_step(self.actor_optim, self.actor, self.actor_scheduler, name="actor")
@@ -252,10 +258,15 @@ class ActorPPOTrainer(ABC):
 
         # status
         status = {"policy_loss": actor_loss.detach().item(), "actor_lr": self.actor_scheduler.get_last_lr()[0]}
-        if self.args.entropy_loss_coef > 1e-8:
+        if self.args.entropy_loss_coef is not None:
             status["entropy_loss"] = entropy_loss.detach().item()
+
+        # merge logs from info field
         for k, v in experience.info.items():
-            status[k] = v.mean().item()
+            if isinstance(v, list):
+                status[k] = torch.tensor(v, dtype=torch.float).mean().item()
+            elif isinstance(v, torch.Tensor):
+                status[k] = v.float().mean().item()
         return status
 
     def _broadcast_to_vllm(self):
@@ -269,63 +280,74 @@ class ActorPPOTrainer(ABC):
         torch.cuda.empty_cache()
         model = self.actor.model.module
         count, num_params = 0, len(list(model.named_parameters()))
+
+        def _broadcast_param(param, count, num_params):
+            use_ray = getattr(self.strategy.args, "vllm_sync_with_ray", False)
+            # Fire all vllm engines for broadcast
+            if torch.distributed.get_rank() == 0:
+                shape = param.shape if self.strategy.args.zero_stage != 3 else param.ds_shape
+                refs = [
+                    engine.update_weight.remote(name, dtype=param.dtype, shape=shape, empty_cache=count == num_params)
+                    for engine in self.vllm_engines
+                ]
+
+                if use_ray:
+                    import ray.util.collective as collective
+
+                    collective.broadcast(param.data, 0, group_name=self._model_update_group)
+                else:
+                    torch.distributed.broadcast(param.data, 0, group=self._model_update_group)
+                ray.get(refs)
+
+        def _handle_cuda_ipc(param, count, num_params):
+            from torch.multiprocessing.reductions import reduce_tensor
+
+            weight = param.data.clone()
+            ipc_handle = reduce_tensor(weight)
+
+            ipc_handle = {get_physical_gpu_id(): ipc_handle}
+            ipc_handle_list = [None] * torch.distributed.get_world_size()
+            torch.distributed.all_gather_object(ipc_handle_list, ipc_handle)
+
+            if torch.distributed.get_rank() == 0:
+                ipc_handles = {}
+                for d in ipc_handle_list:
+                    ipc_handles.update(d)
+
+                shape = param.shape if self.strategy.args.zero_stage != 3 else param.ds_shape
+                refs = [
+                    engine.update_weight_cuda_ipc.remote(
+                        name,
+                        dtype=param.dtype,
+                        shape=shape,
+                        ipc_handles=ipc_handles,
+                        empty_cache=count == num_params,
+                    )
+                    for engine in self.vllm_engines
+                ]
+                ray.get(refs)
+            torch_dist_barrier_and_cuda_sync()
+
         for name, param in model.named_parameters():
             count += 1  # empty_cache at last param
 
             # broadcast
             if not self.use_cuda_ipc:
-                use_ray = getattr(self.strategy.args, "vllm_sync_with_ray", False)
-                # Fire all vllm engines for broadcast
-                if torch.distributed.get_rank() == 0:
-                    shape = param.shape if self.strategy.args.zero_stage != 3 else param.ds_shape
-                    refs = [
-                        engine.update_weight.remote(
-                            name, dtype=param.dtype, shape=shape, empty_cache=count == num_params
-                        )
-                        for engine in self.vllm_engines
-                    ]
-
                 # For ZeRO-3, allgather sharded parameter and broadcast to all vllm engines by rank 0
-                with deepspeed.zero.GatheredParameters([param], enabled=self.strategy.args.zero_stage == 3):
-                    if torch.distributed.get_rank() == 0:
-                        if use_ray:
-                            import ray.util.collective as collective
-
-                            collective.broadcast(param.data, 0, group_name=self._model_update_group)
-                        else:
-                            torch.distributed.broadcast(param.data, 0, group=self._model_update_group)
-                        ray.get(refs)
+                if self.strategy.args.ds_tensor_parallel_size > 1:
+                    with deepspeed.module_inject.layers.GatherReplacedLayerParams([param], model, enabled=True):
+                        _broadcast_param(param, count, num_params)
+                else:
+                    with deepspeed.zero.GatheredParameters([param], enabled=self.strategy.args.zero_stage == 3):
+                        _broadcast_param(param, count, num_params)
             # CUDA IPC
             else:
-                from torch.multiprocessing.reductions import reduce_tensor
-
-                # For ZeRO-3, allgather sharded parameter and broadcast to all vllm engines by rank 0
-                with deepspeed.zero.GatheredParameters([param], enabled=self.strategy.args.zero_stage == 3):
-                    weight = param.data.clone()
-                    ipc_handle = reduce_tensor(weight)
-
-                    ipc_handle = {get_physical_gpu_id(): ipc_handle}
-                    ipc_handle_list = [None] * torch.distributed.get_world_size()
-                    torch.distributed.all_gather_object(ipc_handle_list, ipc_handle)
-
-                    if torch.distributed.get_rank() == 0:
-                        ipc_handles = {}
-                        for d in ipc_handle_list:
-                            ipc_handles.update(d)
-
-                        shape = param.shape if self.strategy.args.zero_stage != 3 else param.ds_shape
-                        refs = [
-                            engine.update_weight_cuda_ipc.remote(
-                                name,
-                                dtype=param.dtype,
-                                shape=shape,
-                                ipc_handles=ipc_handles,
-                                empty_cache=count == num_params,
-                            )
-                            for engine in self.vllm_engines
-                        ]
-                        ray.get(refs)
-                    torch_dist_barrier_and_cuda_sync()
+                if self.strategy.args.ds_tensor_parallel_size > 1:
+                    with deepspeed.module_inject.layers.GatherReplacedLayerParams([param], model, enabled=True):
+                        _handle_cuda_ipc(param, count, num_params)
+                else:
+                    with deepspeed.zero.GatheredParameters([param], enabled=self.strategy.args.zero_stage == 3):
+                        _handle_cuda_ipc(param, count, num_params)
 
         if cache_reset_refs:
             ray.get(cache_reset_refs)
@@ -414,13 +436,14 @@ class ActorModelRayActor(BasePPORole):
             self.ema_model = None
 
         # load checkpoint
-        self.consumed_samples = 0
+        self.checkpoint_states = {}
         ckpt_path = os.path.join(args.ckpt_path, "_actor")
         if args.load_checkpoint and os.path.exists(ckpt_path):
             strategy.print(f"Loading the checkpoint: {ckpt_path}")
             _, states = strategy.load_ckpt(self.actor.model, ckpt_path)
-            self.consumed_samples = states["consumed_samples"]
-            strategy.print(f"consumed_samples: {self.consumed_samples}")
+            self.checkpoint_states["global_step"] = states["global_step"]
+            self.checkpoint_states["episode"] = states["episode"]
+            self.checkpoint_states["data_loader_state_dict"] = states["data_loader_state_dict"]
 
         # initial offload
         if strategy.args.deepspeed_enable_sleep:
@@ -483,8 +506,8 @@ class ActorModelRayActor(BasePPORole):
     def broadcast_to_vllm(self):
         self.trainer._broadcast_to_vllm()
 
-    def get_consumed_samples(self):
-        return self.consumed_samples
+    def get_checkpoint_states(self):
+        return self.checkpoint_states
 
     def append(self, experience: Experience):
         self.trainer.replay_buffer.append(experience)
