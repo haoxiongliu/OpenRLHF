@@ -2,6 +2,7 @@ import asyncio
 import os
 
 import ray
+import torch
 
 from .vllm_engine import BaseLLMRayActor
 
@@ -100,6 +101,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 action_ranges = []
                 total_reward = 0
                 final_scores = 0
+                extra_logs = None
 
                 # Execute multiple steps of interaction
                 for step_idx in range(max_steps):
@@ -115,17 +117,27 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     # Generate response asynchronously
                     request_output = await self.generate_async(state, sampling_params)
                     action = request_output.outputs[0].text
-                    action_ranges.append((len(state), len(state) + len(action)))
+                    original_action_len = len(action)
+                    action_start = len(state)
 
                     # Call step function to get reward and next state
                     # Use asyncio.to_thread to make Ray remote call non-blocking
                     kwargs = {"sampling_params": sampling_params}
                     result = await agent_instance.step.remote(state, action, label, **kwargs)
-                    total_reward += result["rewards"].item()
+                    reward = result["rewards"]
+                    if isinstance(reward, torch.Tensor):
+                        reward = reward.item()
+                    total_reward += reward
                     final_scores = result.get("scores", total_reward)
                     state = result["next_state"]
                     done = result["done"]
                     extra_logs = result.get("extra_logs", {})
+
+                    # consider structured output from the environment
+                    action_end = len(state)
+                    action_ranges.append((action_start, action_end))
+                    if original_action_len != action_end - action_start:
+                        print(f"structured output detected: {original_action_len=} != {action_end - action_start}")
 
                     # Get sampling params from the environment step
                     if result.get("sampling_params", None):

@@ -88,7 +88,7 @@ def create_app(config: RewardConfig) -> FastAPI:
         for i in range(len(reward_request.queries)):
             query = reward_request.queries[i]
             if mode == "completion":
-                code = extract_code(query)
+                code = extract_code(query, omit_think=True)
             else:
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
@@ -106,7 +106,7 @@ def create_app(config: RewardConfig) -> FastAPI:
         verification_request_ids = config.scheduler.submit_all_request(codes)
         verification_results = await config.scheduler.async_get_all_request_outputs(verification_request_ids)
         rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
-
+        
         if config.debug:
             i = random.randint(0, len(reward_request.queries) - 1)
             debug_dict = {
@@ -120,7 +120,9 @@ def create_app(config: RewardConfig) -> FastAPI:
         average_reward = sum(rewards) / len(rewards)
         logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
 
-        return {"rewards": rewards}
+        return {
+            "rewards": rewards,
+        }
     
     return app
 
@@ -133,11 +135,12 @@ if __name__ == "__main__":
     parser.add_argument("--repl_path", type=str, default=None, help="Repl executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
     parser.add_argument("--timeout", type=int, default=60, help="DO NOT USE THIS SCRIPT FOR EVALUATION. Low timeout to encourage fast verification.")
-    parser.add_argument("-n", "--max_concurrent", type=int, default=24, help="Maximum concurrent verification requests")
+    parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
-    parser.add_argument("--use_pty", action="store_true", help="Use pty mode")
+    parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
+    parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
     parser.add_argument("--pty_restart_count", type=int, default=100, help="Pty restart count")
     args = parser.parse_args()
     

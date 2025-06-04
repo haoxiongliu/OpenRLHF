@@ -103,7 +103,20 @@ def load_jsonl_objects(input_path):
     return objects
 
 
-def extract_code(text: str, strict: bool = False) -> str:
+def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> str:
+    if omit_think:
+        # find the first <think> and last </think> (if no last </think>, remove all content)
+        think_start = text.find('<think>')
+        think_end = text.rfind('</think>')
+        if think_end == -1:
+            # If no closing </think> found, remove everything from the first <think> onward
+            if think_start != -1:
+                text = text[:think_start].strip()
+            else:
+                text = text.strip()
+        else:
+            text = text[:think_start] + text[think_end+len('</think>'):]
+            text = text.strip()
     code = None
     pattern = r'```lean4?\n(.*?)\n```'
     last_match = None
