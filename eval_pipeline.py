@@ -16,6 +16,7 @@ from os.path import join
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import openai
+import requests  # Add for HTTP requests to lean_reward_server
 
 
 async def compile_codes(
@@ -49,6 +50,59 @@ async def compile_codes(
         raise e
     finally:
         lean4_scheduler.close()
+
+
+async def compile_codes_with_server(queries, args):
+    """
+    Use lean_reward_server for code compilation via HTTP requests
+    """
+    server_url = f"http://{args.lean_server_host}:{args.lean_server_port}"
+    
+    # Prepare request data in the format expected by lean_reward_server
+    request_data = {
+        "queries": queries,  # Send codes as queries in completion mode
+        "proof_aug": args.proofaug,
+        "hammer_list": args.hammer_list
+    }
+    
+    try:
+        logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
+        response = requests.post(
+            f"{server_url}/reward",
+            json=request_data,
+            timeout=args.timeout * 2  # Allow more time for server processing
+        )
+        response.raise_for_status()
+        
+        server_result = response.json()
+        
+        # Convert server response to the format expected by eval_pipeline
+        outputs_list = []
+        for i in range(len(queries)):
+            reward = server_result["rewards"][i]
+            success_type = server_result["success_types"][i]
+            proofaug_code = server_result["proofaug_codes"][i]
+            # Map server response to compile_codes format
+            verification_result = {
+                "complete": reward > 0,  # Same logic as lean_reward_server
+                "success_type": success_type,
+                "proofaug_body": proofaug_code,
+                "header": None,
+                "body": None,
+                "verify_time": 0  # Not provided by server
+            }
+            outputs_list.append(verification_result)
+        
+        logger.info(f"Received results from lean_reward_server: {sum(server_result['rewards'])} successful out of {len(queries)}")
+        return outputs_list
+        
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error communicating with lean_reward_server: {e}")
+        raise e
+    except Exception as e:
+        logger.error(f"Error processing server response: {e}")
+        raise e
+
 
 def summarize_results(codes, field):
     df = pd.DataFrame(codes)
@@ -246,9 +300,17 @@ def main(args):
     codes = [code["code"] for code in to_inference_codes]
     
     print(f"Compiling {len(codes)} codes")
-    outputs_list = asyncio.run(compile_codes(
-        codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, 
-        args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig, args))
+    
+    if args.use_lean_server:
+        # Use lean_reward_server for compilation
+        queries = [f"```lean4\n{code}\n```" for code in codes]
+        outputs_list = asyncio.run(compile_codes_with_server(queries, args))
+    else:
+        # Use local compilation method
+        outputs_list = asyncio.run(compile_codes(
+            codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, 
+            args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig, args))
+    
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
 
@@ -304,7 +366,7 @@ if __name__ == "__main__":
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
     parser.add_argument('--top_p', default=0.95, type=float)
-    parser.add_argument('--timeout', default=300, type=int)
+    parser.add_argument('--timeout', default=300, type=int, help="step timeout for the lean server")
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
@@ -322,6 +384,9 @@ if __name__ == "__main__":
     parser.add_argument('--random_order', action='store_true', default=False)
     parser.add_argument('--lean_workspace', type=str, default='mathlib4/')
     parser.add_argument('--repl_path', type=str, default=DEFAULT_REPL_PATH)
+    parser.add_argument('--use_lean_server', action='store_true', default=False)
+    parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
+    parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')
 
     args = parser.parse_args()
     print(args)

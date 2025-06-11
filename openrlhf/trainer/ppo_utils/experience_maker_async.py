@@ -44,6 +44,10 @@ class SamplesGeneratorAsync(SamplesGenerator):
                     labels=labels,
                     max_length=truncate_length,
                     hf_tokenizer=self.tokenizer,
+                    proof_aug=kwargs.get("proof_aug", False),
+                    hammer_list=kwargs.get("hammer_list", None),
+                    remote_timeout=kwargs.get("remote_timeout", None),
+                    step_timeout=kwargs.get("step_timeout", None),
                 )
             )
         ray.get(refs)

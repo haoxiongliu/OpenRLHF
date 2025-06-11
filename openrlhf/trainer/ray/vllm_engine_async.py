@@ -74,7 +74,12 @@ class LLMRayActorAsync(BaseLLMRayActor):
     async def wake_up(self):
         await self.llm.wake_up()
 
-    async def add_requests(self, sampling_params, prompts, labels, max_length, hf_tokenizer=None, max_steps=10000):
+    async def add_requests(self, 
+            sampling_params, prompts, labels, 
+            max_length, hf_tokenizer=None, max_steps=10000, 
+            proof_aug=False, hammer_list=None,
+            remote_timeout=None, step_timeout=None
+        ):
         """
         Process requests from rank0 and generate responses with multiple agent interactions.
         Each prompt will go through multiple steps of interaction using the step function.
@@ -122,7 +127,12 @@ class LLMRayActorAsync(BaseLLMRayActor):
 
                     # Call step function to get reward and next state
                     # Use asyncio.to_thread to make Ray remote call non-blocking
-                    kwargs = {"sampling_params": sampling_params}
+                    # TODO: add kwargs config by a yaml file
+                    kwargs = {"sampling_params": sampling_params,
+                              "proof_aug": proof_aug,
+                              "hammer_list": hammer_list,
+                              "remote_timeout": remote_timeout,
+                              "step_timeout": step_timeout}
                     result = await agent_instance.step.remote(state, action, label, **kwargs)
                     reward = result["rewards"]
                     if isinstance(reward, torch.Tensor):

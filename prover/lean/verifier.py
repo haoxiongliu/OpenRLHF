@@ -149,7 +149,11 @@ class Lean4ServerProcess(mp.Process):
         if verbose:
             print(json.dumps(cmd, ensure_ascii=False))
         return cmd
-    
+
+    def repl_run(self, code, env=None, proofState=None, sorries=None, verbose=False):
+        cmd = self._to_command(code, env, proofState, sorries, verbose)
+        return self._send_command_to_repl(cmd)
+
     def _set_raw_mode(self, fd):
         """Set terminal to raw mode for better process interaction"""
         try:
@@ -174,9 +178,11 @@ class Lean4ServerProcess(mp.Process):
             return result['env']
 
     
-    def _send_command_to_repl(self, command: dict):
+    def _send_command_to_repl(self, command: dict, timeout: Optional[float] = None):
         """Send command to REPL with enhanced message framing"""
         try:
+            if timeout is None:
+                timeout = self.timeout
             # Send with protocol delimiter
             os.write(self.master_fd, (json.dumps(command) + "\n\n").encode())
             
@@ -192,10 +198,10 @@ class Lean4ServerProcess(mp.Process):
                 logger.warning(f"Non-read buffer data: {last_chunk}")
                 
             while True:
-                remaining = max(0.1, self.timeout - (time.time() - start_time))
+                remaining = max(0.1, timeout - (time.time() - start_time))
                 ready, _, _ = select.select([self.master_fd], [], [], remaining)
                 if not ready:
-                    raise TimeoutError(f"error: REPL process timeout after {self.timeout} seconds")
+                    raise TimeoutError(f"error: REPL process timeout after {timeout} seconds")
                 
                 # Read chunk
                 try:
@@ -243,14 +249,9 @@ class Lean4ServerProcess(mp.Process):
             self._clean_init_repl()
             return {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
     
-    def repl_run(self, code, env=None, proofState=None, sorries=None, verbose=False):
-        cmd = self._to_command(code, env, proofState, sorries, verbose)
-        return self._send_command_to_repl(cmd)
-
-
     def _verify_lean4_with_persistent_repl(
         self, 
-        code: str, 
+        code: Optional[str], 
         allTactics: bool=False, 
         ast: bool=False, 
         premises: bool=False, 
@@ -259,14 +260,52 @@ class Lean4ServerProcess(mp.Process):
         pa_with_orig: bool=False,
         hammer_type: Optional[str]=None,
         hammer_list: Optional[list[str] | str]=None,
+        step_timeout: Optional[float]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
     ):
+        if code is None:
+            return {
+                "pass": False,
+                "complete": False,
+                "system_messages": "No code found in the request"
+            }
         global hammer_count
         start_time = time.time()
         system_messages = ''
         hammer_count = 0  # Initialize hammer_count at the start
         try:
-            if proofaug:
+            complete = False
+            if (not proofaug) or pa_with_orig:
+                header, body = split_header_body(code)
+                command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
+                
+                # Check if we already have an environment for this header
+                if header is not None:
+                    env = self._initialize_header_env(header)
+                    if env is not None:
+                        command.update(env=env)
+                
+                result = self._send_command_to_repl(command, timeout=step_timeout)
+                
+                ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
+                verification_result = {
+                    "sorries": result.get('sorries', []), 
+                    "tactics": result.get('tactics', []),
+                    "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
+                    "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
+                    "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
+                    "system_messages": system_messages,
+                    "system_errors": None,
+                    "ast": ast_results,
+                    "header": header,
+                    "body": body
+                    # "verified_code": code,  # Keep original code for reference
+                }
+                verification_result['pass'] = not verification_result['errors']
+                verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
+                complete = verification_result['complete']
+
+            if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
                 if not hammer_list:
                     hammers = [HINT_DICT[hammer_type]]
@@ -279,6 +318,7 @@ class Lean4ServerProcess(mp.Process):
                 if header is not None:
                     init_env = self._initialize_header_env(header)  # can be None
                 
+                body = body.replace("all_goals ", "")
                 prop_struct = ProposalStructure(body)
                 block = prop_struct.root.parts[0]
                 proofaug_index = dict()
@@ -296,11 +336,11 @@ class Lean4ServerProcess(mp.Process):
                         code += ' sorry'
                     if ps is None:  # block.level == 0
                         cmd = to_command(code, env=init_env, sorries=sorry_mode)
-                        result = self._send_command_to_repl(cmd)
+                        result = self._send_command_to_repl(cmd, timeout=step_timeout)
                         errors = [m for m in result['messages'] if m['severity'] == 'error']
                     else:
                         cmd = to_command(code, proofState=ps, sorries=sorry_mode)
-                        result = self._send_command_to_repl(cmd)
+                        result = self._send_command_to_repl(cmd, timeout=step_timeout)
                         errors = [result['message']] if is_error_message(result.get('message', '')) else []
 
                     if errors:
@@ -324,7 +364,7 @@ class Lean4ServerProcess(mp.Process):
                                 raise ValueError(f"Statement occur in the rest parts of {block=}")
                             else:
                                 cmd = to_command(code, proofState=ps, sorries=sorry_mode)
-                                result = self._send_command_to_repl(cmd)
+                                result = self._send_command_to_repl(cmd, timeout=step_timeout)
                                 errors = [result['message']] if is_error_message(result.get('message', '')) else []
                                 if errors:
                                     block.state = BlockState.WAIT_SORRY
@@ -353,7 +393,7 @@ class Lean4ServerProcess(mp.Process):
                         cand_combs = list(itertools.product(ps_cands, hammers))
                         for cand_i, (ps_cand, hammer) in enumerate(cand_combs):
                             cmd = to_command(hammer, proofState=ps_cand, sorries=sorry_mode)
-                            result = self._send_command_to_repl(cmd)
+                            result = self._send_command_to_repl(cmd, timeout=step_timeout)
                             hammer_count += 1
                             errors = [result['message']] if is_error_message(result.get('message', '')) else []
                             if errors:
@@ -382,12 +422,13 @@ class Lean4ServerProcess(mp.Process):
                     if block.level == 0 and result.get('proofStatus', None) == 'Completed':
                         block.state = BlockState.COMPLETED
                         verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
-                        result_verify = self._send_command_to_repl(verify_cmd)
+                        result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
                         errors = [m for m in result_verify['messages'] if m['severity'] == 'error']
                         if errors:
                             logger.warning(f"Error in verifying the reconstructed proof {block.proofaug_content=}:\n{errors=}\nProbably bug of repl")
                         else:
                             logger.debug(f"Verified the reconstructed proof {block.proofaug_content=} with {proofaug_index=}")
+                            result['proofaug_body'] = block.proofaug_content
                     return ps, result
 
                 proofState, result = verify_block(block)
@@ -403,37 +444,10 @@ class Lean4ServerProcess(mp.Process):
                     "success_type": success_type,
                     "pass": block.state in [BlockState.PASSED, BlockState.COMPLETED],
                     "proofaug_index": proofaug_index,
+                    "proofaug_body": result.get('proofaug_body', None),
                     "last_result": result,
                     "hammer_count": hammer_count,
                 }
-            if (not proofaug) or (pa_with_orig and (not complete)):
-                header, body = split_header_body(code)
-                command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
-                
-                # Check if we already have an environment for this header
-                if header is not None:
-                    env = self._initialize_header_env(header)
-                    if env is not None:
-                        command.update(env=env)
-                
-                result = self._send_command_to_repl(command)
-                
-                ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
-                verification_result = {
-                    "sorries": result.get('sorries', []), 
-                    "tactics": result.get('tactics', []),
-                    "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
-                    "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
-                    "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
-                    "system_messages": system_messages,
-                    "system_errors": None,
-                    "ast": ast_results,
-                    "header": header,
-                    "body": body
-                    # "verified_code": code,  # Keep original code for reference
-                }
-                verification_result['pass'] = not verification_result['errors']
-                verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
 
 
 

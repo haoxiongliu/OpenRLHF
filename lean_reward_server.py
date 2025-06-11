@@ -15,6 +15,9 @@ from typing import List, Optional, Dict, Annotated
 import uvicorn
 from contextlib import asynccontextmanager
 import random
+import signal
+import sys
+
 
 from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement
@@ -25,56 +28,54 @@ class RewardRequest(BaseModel):
     queries: List[str]  # in fact prompt+response
     prompts: Optional[List[str]] = None  # in fact prompt only
     labels: Optional[List[str]] = None
+    proof_aug: bool = False
+    hammer_list: Optional[List[str]|str] = None
+    step_timeout: Optional[int] = None
 
-class RewardConfig:
-    def __init__(self, 
-                 lake_path: str = None,
-                 lean_workspace: str = None,
-                 timeout: int = 300,
-                 max_concurrent_requests: int = 16,
-                 memory_limit: float = 5,
-                 debug: bool = False,
-                 use_pty: bool = False,
-                 repl_path: str = None):
-        self.lake_path = lake_path or DEFAULT_LAKE_PATH
-        self.lean_workspace = lean_workspace or DEFAULT_LEAN_WORKSPACE
-        self.repl_path = repl_path or DEFAULT_REPL_PATH
-        self.timeout = timeout
-        self.max_concurrent_requests = max_concurrent_requests
-        self.memory_limit = memory_limit
-        self.debug = debug
-        self.use_pty = use_pty
-        logger.info(f"Initializing Lean4ServerScheduler with {max_concurrent_requests} concurrent requests and {memory_limit}GB memory limit")
-        self.scheduler = Lean4ServerScheduler(
-            max_concurrent_requests=self.max_concurrent_requests, 
-            timeout=self.timeout, 
-            memory_limit=self.memory_limit,
-            name='reward_verifier',
-            use_pty=self.use_pty,
-            repl_path=self.repl_path
-        )
-
-
-def create_app(config: RewardConfig) -> FastAPI:
+def create_app(args: argparse.Namespace) -> FastAPI:
+    # Initialize scheduler here instead of in Config class
+    lake_path = args.lake_path or DEFAULT_LAKE_PATH
+    lean_workspace = args.lean_workspace or DEFAULT_LEAN_WORKSPACE
+    repl_path = args.repl_path or DEFAULT_REPL_PATH
+    
+    logger.info(f"Initializing Lean4ServerScheduler with {args.max_concurrent} concurrent requests and {args.memory_limit}GB memory limit")
+    scheduler = Lean4ServerScheduler(
+        max_concurrent_requests=args.max_concurrent, 
+        timeout=args.timeout, 
+        memory_limit=args.memory_limit,
+        name='reward_verifier',
+        use_pty=args.use_pty,
+        repl_path=repl_path,
+        lean_workspace=lean_workspace,
+        lake_path=lake_path,
+        pty_restart_count=args.pty_restart_count,
+    )
+    
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logger.info("Server starting up")
         yield
-        if hasattr(app.state.config, 'scheduler'):
-            app.state.config.scheduler.close()
+        if hasattr(app.state, 'scheduler'):
+            app.state.scheduler.close()
             logger.info("Lean4ServerScheduler closed")
     
     app = FastAPI(lifespan=lifespan)
-    app.state.config = config
+    app.state.args = args
+    app.state.scheduler = scheduler
     
-    def get_config(request: Request) -> RewardConfig:
-        return request.app.state.config
+    def get_args(request: Request) -> argparse.Namespace:
+        return request.app.state.args
+    
+    def get_scheduler(request: Request) -> Lean4ServerScheduler:
+        return request.app.state.scheduler
 
     @app.post("/reward")
     async def get_reward(
         reward_request: RewardRequest,
-        config: Annotated[RewardConfig, Depends(get_config)]
+        args: Annotated[argparse.Namespace, Depends(get_args)],
+        scheduler: Annotated[Lean4ServerScheduler, Depends(get_scheduler)]
     ):
+        n = len(reward_request.queries)
         request_id = str(uuid.uuid4())[:8]
         logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
 
@@ -85,49 +86,87 @@ def create_app(config: RewardConfig) -> FastAPI:
             mode = "completion"
         else:
             mode = "chat"
-        for i in range(len(reward_request.queries)):
+        # codes_in_prompt = []
+        sep = ":="
+        for i in range(n):
             query = reward_request.queries[i]
             if mode == "completion":
-                code = extract_code(query, omit_think=True)
-            else:
+                code = extract_code(query)
+            elif mode == "chat":
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
+                code_in_prompt = extract_code(prompt)
                 response = query[len(prompt):]
-                response_code = extract_code(response)
-                prompt_code = extract_code(prompt)
-                prefix = prompt_code.split(":=")[0]
-                mc_prefix_end = response_code.find(":=")
-                if mc_prefix_end == -1:
-                    logger.debug(f"No := or code block found in ...{response[-50:]}")
-                    code = "[[No := or code block found in the model output]]"
+                code_in_response = extract_code(response, omit_think=True)
+                prefix = code_in_prompt.split(sep)[0]
+                sep_pos = code_in_response.find(sep)
+                if sep_pos == -1:
+                    logger.debug(f"No := or code block found in ...{response[-100:]}")
+                    code = None
                 else:
-                    code = prefix + response_code[mc_prefix_end:]
+                    code = prefix + code_in_response[sep_pos:]
             codes.append(code)
-        verification_request_ids = config.scheduler.submit_all_request(codes)
-        verification_results = await config.scheduler.async_get_all_request_outputs(verification_request_ids)
-        rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
+        tasks = [{
+            "code": code,
+            "proofaug": reward_request.proof_aug,
+            "hammer_list": reward_request.hammer_list,
+            "step_timeout": reward_request.step_timeout
+        } for code in codes]
         
-        if config.debug:
-            i = random.randint(0, len(reward_request.queries) - 1)
-            debug_dict = {
-                # "query": reward_request.queries[i],
-                "code": codes[i],
-                "reward": rewards[i],
-                "errors": verification_results[i].get("errors", []),
-            }
-            logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
+        verification_request_ids = scheduler.submit_all_request(tasks)
+        verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids)
+        # The result is _verify_lean4_with_persistent_repl return value
+        rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
+        proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
+        success_types = [result.get("success_type", None) for result in verification_results]
+        if args.require_reconstruct:
+            for i in range(n):
+                if proofaug_bodies[i] is None and success_types[i] == "proofaug":
+                    logger.warning(f"Proofaug body is None while proofaug success for query {reward_request.queries[i]}")
+                    rewards[i] = 0.0
+
+        i = random.randint(0, n - 1)
+        debug_dict = {
+            # "query": reward_request.queries[i],
+            "code": codes[i],
+            "reward": rewards[i],
+            "proofaug_body": proofaug_bodies[i],
+            "success_type": success_types[i],
+            "errors": verification_results[i].get("system_errors", []),
+        }
+        logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
 
         average_reward = sum(rewards) / len(rewards)
         logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
 
+        proofaug_codes = [] # prompt prefix + proofaug proof after sep
+        for i, proofaug_body in enumerate(proofaug_bodies):
+            if proofaug_body is None:
+                proofaug_codes.append(None)
+            else:
+                assert isinstance(proofaug_body, str), f"Proofaug body is not a string: {proofaug_body}"
+                code = codes[i] # type: str
+                sep_pos = code.find(sep)
+                proofaug_proof = proofaug_body.partition(sep)[2]
+                proofaug_codes.append(code[:sep_pos] + sep + proofaug_proof)
+
         return {
             "rewards": rewards,
+            "proofaug_codes": proofaug_codes,
+            "success_types": success_types,
         }
     
     return app
 
+def signal_handler(sig, frame):
+    logger.info("Received interrupt signal, shutting down gracefully...")
+    sys.exit(0)
 
 if __name__ == "__main__":
+
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     parser = argparse.ArgumentParser(description="Lean verification reward model API server")
     parser.add_argument("--host", default="0.0.0.0", help="Server hostname")
     parser.add_argument("--port", type=int, default=5000, help="Server port")
@@ -137,14 +176,16 @@ if __name__ == "__main__":
     parser.add_argument("--timeout", type=int, default=60, help="DO NOT USE THIS SCRIPT FOR EVALUATION. Low timeout to encourage fast verification.")
     parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode with detailed logging")
+    parser.add_argument("--log_level", type=str, default="info", help="debug, info, warning, error, critical")
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
-    parser.add_argument("--pty_restart_count", type=int, default=100, help="Pty restart count")
+    parser.add_argument("--pty_restart_count", type=int, default=1000, help="Pty restart count")
+    parser.add_argument("--require_reconstruct", action="store_true", help="Require proofaug reconstruction correct to be reward 1")
+    parser.add_argument("--time_reward", action="store_true", help="Use elapsed time as reward (not implemented yet)")
     args = parser.parse_args()
     
-    log_level = logging.DEBUG if args.debug else logging.INFO
+    log_level = getattr(logging, args.log_level.upper())
     logs_dir = Path("logs")
     logs_dir.mkdir(exist_ok=True)
     log_file = logs_dir / f"lean_reward_server_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
@@ -160,17 +201,6 @@ if __name__ == "__main__":
     
     logger.info(f"Starting server with config: {vars(args)}")
     
-    config_instance = RewardConfig(
-        lake_path=args.lake_path,
-        lean_workspace=args.lean_workspace,
-        timeout=args.timeout,
-        max_concurrent_requests=args.max_concurrent,
-        memory_limit=args.memory_limit,
-        debug=args.debug,
-        use_pty=args.use_pty,
-        repl_path=args.repl_path
-    )   
-    
-    app = create_app(config_instance)
+    app = create_app(args)
     logger.info(f"Starting server on {args.host}:{args.port}")
     uvicorn.run(app, host=args.host, port=args.port, log_level="info") 

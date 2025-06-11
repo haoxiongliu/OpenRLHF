@@ -111,21 +111,18 @@ def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> st
         if think_end == -1:
             # If no closing </think> found, remove everything from the first <think> onward
             if think_start != -1:
-                text = text[:think_start].strip()
+                text = text[:think_start]
             else:
-                text = text.strip()
+                text = text
         else:
             text = text[:think_start] + text[think_end+len('</think>'):]
-            text = text.strip()
     code = None
     pattern = r'```lean4?\n(.*?)\n```'
     last_match = None
     for match in re.finditer(pattern, text, re.DOTALL):
         last_match = match # Keep updating last_match with the latest match found
     if last_match:
-        code =  last_match.group(1)
-    else:
-        code = '[[No code found.]]'
+        code = last_match.group(1)
     return code
 
 class ConcurrentJob(object):
@@ -158,7 +155,7 @@ class ConcurrentJob(object):
             self._stage_cache = status
 
 def split_header_body(code, remove_comments=True):
-    """Split the code into header and body. None if no header found."""
+    """Split the code into header and body. empty string if no header found."""
     # TODO: add support for more keywords, or other heuristics
     # This is ad-hoc for proofnet dataset
     if remove_comments:
@@ -170,7 +167,7 @@ def split_header_body(code, remove_comments=True):
     if match is not None:
         header, body = clean_code[:match.start()], clean_code[match.start():]
     else:
-        header, body = None, clean_code
+        header, body = "", clean_code
     return header, body
 
 def remove_lean_comments(code: str, normalize: bool = False) -> str:
