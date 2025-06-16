@@ -3,6 +3,7 @@ import os
 
 import ray
 import torch
+import random
 
 from .vllm_engine import BaseLLMRayActor
 
@@ -148,7 +149,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     # consider structured output from the environment
                     action_end = len(state)
                     action_ranges.append((action_start, action_end))
-                    if original_action_len != action_end - action_start:
+                    if original_action_len != action_end - action_start and random.random() < 0.1:
                         sample_original_action = action
                         sample_structured_output = state[action_start:action_end]
 
