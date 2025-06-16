@@ -15,8 +15,9 @@ import pandas as pd
 from datasets import load_dataset, Dataset
 import glob
 import csv
+from typing import Optional
 
-
+DEF_SIGN=":="
 HOME_DIR = os.path.expanduser('~')
 PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
@@ -33,8 +34,10 @@ HINT_DICT = {
     'aesop_v0.1': r"try aesop; try norm_num [*]",
     'omega': r"try omega",
     'nlinarith': r"try nlinarith",
+    "linarith": r"try linarith",
     'ring_nf': r"try ring_nf",
     'simp_all': r"try simp_all",
+    "norm_num": r"try norm_num",
 }
 
 
@@ -103,7 +106,7 @@ def load_jsonl_objects(input_path):
     return objects
 
 
-def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> str:
+def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Optional[str]:
     if omit_think:
         # find the first <think> and last </think> (if no last </think>, remove all content)
         think_start = text.find('<think>')
@@ -550,6 +553,51 @@ def has_unrecoverable_error(messages: list[str]) -> bool:
     """
     return any(re.search(r"[tT]imeout", message) for message in messages)
 
+
+def extract_errors(result: dict) -> list[str]:
+    """handle ['messages'][0]['severity] format and ['message] format of repl,
+    only extract the error message.
+    {"sorries":
+    [{"proofState": 1,
+    "pos": {"line": 3, "column": 31},
+    "parentDecl": "mathd_algebra_263",
+    "goals":
+    ["y : ℝ\nh₀ : 0 ≤ 19 + 3 * y\nh₁ : √(19 + 3 * y) = 7\n⊢ 0 ≤ 19 + 3 * y"],
+    "endPos": {"line": 3, "column": 36}}],
+    "messages":
+    [{"severity": "error",
+    "pos": {"line": 2, "column": 14},
+    "endPos": {"line": 3, "column": 36},
+    "data":
+    "unsolved goals\ny : ℝ\nh₀ : 0 ≤ 19 + 3 * y\nh₁ : √(19 + 3 * y) = 7\nh₁' : 0 ≤ 19 + 3 * y\n⊢ y = 10"}],
+    "env": 2}    
+    {'message': 'Lean error:\n<input>:1:1: unknown tactic'}
+    """
+    errors = []
+    if "message" in result:
+        message = result["message"]
+        error_cands = ["error", "unknown proof state", "unknown environment"]
+        if any(cand in message.lower() for cand in error_cands):
+            errors.append(message)
+    elif "messages" in result:
+        for message in result["messages"]:
+            if message["severity"] == "error":
+                errors.append(message["data"])
+    return errors
+
+
+def is_complete(result: dict) -> bool:
+    """
+    Check if the proof is complete according to the repl result.
+    """
+    ret_val = False
+    if "messages" in result:
+        infos = [m for m in result.get('messages', []) if m['severity'] == 'info']
+        if any("Goals accomplished" in info.get('data', '') for info in infos):
+            ret_val = True
+    elif 'proofStatus' in result:
+        ret_val = result['proofStatus'] == 'Completed'  # Agentus version of repl
+    return ret_val
 
 if __name__ == "__main__":
     import argparse

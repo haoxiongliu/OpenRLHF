@@ -77,7 +77,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
     async def add_requests(self, 
             sampling_params, prompts, labels, 
             max_length, hf_tokenizer=None, max_steps=10000, 
-            proof_aug=False, hammer_list=None,
+            proofaug=False, hammer_list=None,
             remote_timeout=None, step_timeout=None
         ):
         """
@@ -109,6 +109,8 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 extra_logs = None
 
                 # Execute multiple steps of interaction
+                sample_original_action = None
+                sample_structured_output = None
                 for step_idx in range(max_steps):
                     # Next sampling budget
                     state_tokens_len = len(
@@ -129,7 +131,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     # Use asyncio.to_thread to make Ray remote call non-blocking
                     # TODO: add kwargs config by a yaml file
                     kwargs = {"sampling_params": sampling_params,
-                              "proof_aug": proof_aug,
+                              "proofaug": proofaug,
                               "hammer_list": hammer_list,
                               "remote_timeout": remote_timeout,
                               "step_timeout": step_timeout}
@@ -147,7 +149,8 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     action_end = len(state)
                     action_ranges.append((action_start, action_end))
                     if original_action_len != action_end - action_start:
-                        print(f"structured output detected: {original_action_len=} != {action_end - action_start}")
+                        sample_original_action = action
+                        sample_structured_output = state[action_start:action_end]
 
                     # Get sampling params from the environment step
                     if result.get("sampling_params", None):
@@ -155,7 +158,8 @@ class LLMRayActorAsync(BaseLLMRayActor):
 
                     if done:
                         break
-
+                if sample_structured_output is not None:
+                    print(f"structured output detected:\n\n{sample_original_action}\n\ntransformed to\n\n{sample_structured_output}")
                 ray.kill(agent_instance)
 
                 # Store the final response when agent execution is complete

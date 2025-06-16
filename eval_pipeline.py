@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH, DEFAULT_REPL_PATH
+from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH, DEFAULT_REPL_PATH, DEF_SIGN
 from prover.logger import logger
 import random
 import torch
@@ -61,47 +61,38 @@ async def compile_codes_with_server(queries, args):
     # Prepare request data in the format expected by lean_reward_server
     request_data = {
         "queries": queries,  # Send codes as queries in completion mode
-        "proof_aug": args.proofaug,
+        "proofaug": args.proofaug,
         "hammer_list": args.hammer_list
     }
     
-    try:
-        logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
-        response = requests.post(
-            f"{server_url}/reward",
-            json=request_data,
-            timeout=args.timeout * 2  # Allow more time for server processing
-        )
-        response.raise_for_status()
-        
-        server_result = response.json()
-        
-        # Convert server response to the format expected by eval_pipeline
-        outputs_list = []
-        for i in range(len(queries)):
-            reward = server_result["rewards"][i]
-            success_type = server_result["success_types"][i]
-            proofaug_code = server_result["proofaug_codes"][i]
-            # Map server response to compile_codes format
-            verification_result = {
-                "complete": reward > 0,  # Same logic as lean_reward_server
-                "success_type": success_type,
-                "proofaug_body": proofaug_code,
-                "header": None,
-                "body": None,
-                "verify_time": 0  # Not provided by server
-            }
-            outputs_list.append(verification_result)
-        
-        logger.info(f"Received results from lean_reward_server: {sum(server_result['rewards'])} successful out of {len(queries)}")
-        return outputs_list
-        
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error communicating with lean_reward_server: {e}")
-        raise e
-    except Exception as e:
-        logger.error(f"Error processing server response: {e}")
-        raise e
+    
+    logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
+    response = requests.post(
+        f"{server_url}/reward",
+        json=request_data,
+    )
+    response.raise_for_status()
+    server_result = response.json()
+    
+    # Convert server response to the format expected by eval_pipeline
+    outputs_list = []
+    for i in range(len(queries)):
+        reward = server_result["rewards"][i]
+        success_type = server_result["success_types"][i]
+        proofaug_code = server_result["proofaug_codes"][i]
+        # Map server response to compile_codes format
+        verification_result = {
+            "complete": reward > 0,  # Same logic as lean_reward_server
+            "success_type": success_type,
+            "proofaug_body": proofaug_code,
+            "header": None,
+            "body": None,
+            "verify_time": 0  # Not provided by server
+        }
+        outputs_list.append(verification_result)
+    
+    logger.info(f"Received results from lean_reward_server: {sum(server_result['rewards'])} successful out of {len(queries)}")
+    return outputs_list
 
 
 def summarize_results(codes, field):
@@ -190,7 +181,7 @@ def main(args):
                 
                 messages.append({"role": "user", "content": template["user"].format(problem=problem, informal_prefix=informal_prefix, header=header, formal_statement=formal_statement)})            
                 messages_list.append(messages)
-                prefixes.append(f"{header}{formal_statement}".split(":=")[0])
+                prefixes.append(f"{header}{formal_statement}".split(DEF_SIGN)[0])
                 # TODO: use model.chat to replace model_inputs
                 if args.chat_template_fp:
                     with open(args.chat_template_fp, 'r') as f:
@@ -268,6 +259,8 @@ def main(args):
             # model_outputs = [[response.choices[i].message.content for i in range(args.n)] for response in responses]
             vllm_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
             model_outputs = [[vllm_output.outputs[i].text for i in range(args.n)] for vllm_output in vllm_outputs]
+            print(f"example model input:\n{model_inputs[0]}")
+            print(f"example model output:\n{model_outputs[0]}")
             del model
             torch.cuda.empty_cache()
         
@@ -281,12 +274,15 @@ def main(args):
             full_codes = []
             for output in model_outputs[i]:
                 model_code = extract_code(extract_prefix + output)
-                mc_prefix_end = model_code.find(":=")
-                if mc_prefix_end == -1:
-                    logger.debug(f"No := found in {extract_prefix + output}")
-                    full_code = "[[No := found in the model output]]"
+                if model_code is None:
+                    full_code = None
                 else:
-                    full_code = prefix + model_code[mc_prefix_end:]
+                    mc_prefix_end = model_code.find(DEF_SIGN)
+                    if mc_prefix_end == -1:
+                        logger.debug(f"No {DEF_SIGN=} found in {extract_prefix + output}")
+                        full_code = None
+                    else:
+                        full_code = prefix + model_code[mc_prefix_end:]
                 full_codes.append(full_code)
             data_list[i]["full_code"] = full_codes
             name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]
@@ -303,6 +299,7 @@ def main(args):
     
     if args.use_lean_server:
         # Use lean_reward_server for compilation
+        # TODO: directly pass the complete input+output to the server
         queries = [f"```lean4\n{code}\n```" for code in codes]
         outputs_list = asyncio.run(compile_codes_with_server(queries, args))
     else:
@@ -327,13 +324,14 @@ def main(args):
         "model": args.model_path,
         "n": args.n,
         "timestamp": datetime.now().strftime("%m%d-%H%M"),
-        "hammers": hammers
+        "hammers": hammers,
+        "output_dir": args.output_dir,
     }
     result.update(infos)
     with open(args.log_file, "a") as f:
         f.write(f"{result}\n")
     with open(summary_path, "w") as f:
-        json.dump(result, f)
+        json.dump(result, f, indent=4)
     print(f"{summary_path}")
     df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
     print(result)

@@ -18,10 +18,11 @@ import re
 import itertools
 from typing import Optional
 from copy import deepcopy
+from collections import deque
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
-from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, HINT_DICT, n_indent, is_error_message
+from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, HINT_DICT, n_indent, is_error_message, extract_errors, is_complete
 from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
 
 
@@ -94,6 +95,7 @@ class Lean4ServerProcess(mp.Process):
         self.pty_restart_count = pty_restart_count
         self.repl_process = None
         self.latest_state = None
+        self.recent_commands = deque(maxlen=100) # max size 100
         
     def _clean_init_repl(self):
         """Create a REPL process using a pseudo-terminal"""
@@ -180,12 +182,13 @@ class Lean4ServerProcess(mp.Process):
     
     def _send_command_to_repl(self, command: dict, timeout: Optional[float] = None):
         """Send command to REPL with enhanced message framing"""
+        ret_obj = None
         try:
             if timeout is None:
                 timeout = self.timeout
             # Send with protocol delimiter
             os.write(self.master_fd, (json.dumps(command) + "\n\n").encode())
-            
+            self.recent_commands.append(command)
             response = b''
             start_time = time.time()
             max_size = 10 * 1024 * 1024  # 10MB safety limit
@@ -241,14 +244,18 @@ class Lean4ServerProcess(mp.Process):
                 elif 'env' in response_obj:
                     self.latest_state = {"env": response_obj['env']}
 
-                return response_obj
+                ret_obj = response_obj
             except Exception as e:
-                return {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
+                ret_obj = {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
             
         except Exception as e:
             self._clean_init_repl()
-            return {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
+            ret_obj = {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
+        
+        return ret_obj
     
+
+
     def _verify_lean4_with_persistent_repl(
         self, 
         code: Optional[str], 
@@ -260,6 +267,7 @@ class Lean4ServerProcess(mp.Process):
         pa_with_orig: bool=False,
         hammer_type: Optional[str]=None,
         hammer_list: Optional[list[str] | str]=None,
+        require_reconstruct: bool=False,
         step_timeout: Optional[float]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
     ):
@@ -288,6 +296,7 @@ class Lean4ServerProcess(mp.Process):
                 result = self._send_command_to_repl(command, timeout=step_timeout)
                 
                 ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
+                complete = is_complete(result)
                 verification_result = {
                     "sorries": result.get('sorries', []), 
                     "tactics": result.get('tactics', []),
@@ -302,8 +311,9 @@ class Lean4ServerProcess(mp.Process):
                     # "verified_code": code,  # Keep original code for reference
                 }
                 verification_result['pass'] = not verification_result['errors']
-                verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
-                complete = verification_result['complete']
+                verification_result['complete'] = complete
+                # verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
+                # complete = verification_result['complete']
 
             if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
@@ -337,11 +347,10 @@ class Lean4ServerProcess(mp.Process):
                     if ps is None:  # block.level == 0
                         cmd = to_command(code, env=init_env, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd, timeout=step_timeout)
-                        errors = [m for m in result['messages'] if m['severity'] == 'error']
                     else:
                         cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd, timeout=step_timeout)
-                        errors = [result['message']] if is_error_message(result.get('message', '')) else []
+                    errors = extract_errors(result)
 
                     if errors:
                         block.state = BlockState.STTM_FAILED
@@ -352,7 +361,7 @@ class Lean4ServerProcess(mp.Process):
                     else:
                         ps = result['proofState']
                         ps2goals[ps] = result['goals']
-                    sttm_ps = ps
+                    sttm_ps = ps  # the sorry state. 
 
                     # handle the rest of the block
                     rest_parts = block.parts[1:] if len(block.parts) > 1 else []
@@ -365,7 +374,7 @@ class Lean4ServerProcess(mp.Process):
                             else:
                                 cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                                 result = self._send_command_to_repl(cmd, timeout=step_timeout)
-                                errors = [result['message']] if is_error_message(result.get('message', '')) else []
+                                errors = extract_errors(result)
                                 if errors:
                                     block.state = BlockState.WAIT_SORRY
                                     break
@@ -395,7 +404,7 @@ class Lean4ServerProcess(mp.Process):
                             cmd = to_command(hammer, proofState=ps_cand, sorries=sorry_mode)
                             result = self._send_command_to_repl(cmd, timeout=step_timeout)
                             hammer_count += 1
-                            errors = [result['message']] if is_error_message(result.get('message', '')) else []
+                            errors = extract_errors(result)
                             if errors:
                                 if cand_i == len(cand_combs) - 1:
                                     block.state = BlockState.SORRY_FAILED
@@ -405,11 +414,11 @@ class Lean4ServerProcess(mp.Process):
                             ps2goals[ps_new] = result['goals']
                             if len(ps2goals[ps_new]) == len(init_goals):
                                 ps = ps_new
-                                num_indent = n_indent(block.parts[0].content) + 2
                                 if ps_cand == sttm_ps:
                                     sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
                                 else:
-                                    sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*num_indent + hammer)
+                                    expected_indent = n_indent(block.parts[1])
+                                    sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*expected_indent + hammer)
                                     
                                 block._proofaug_parts = [sttm_snippet]
                                 block.state = BlockState.PASSED
@@ -423,14 +432,21 @@ class Lean4ServerProcess(mp.Process):
                         block.state = BlockState.COMPLETED
                         verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
                         result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
-                        errors = [m for m in result_verify['messages'] if m['severity'] == 'error']
+                        errors = extract_errors(result_verify)
                         if errors:
                             logger.warning(f"Error in verifying the reconstructed proof {block.proofaug_content=}:\n{errors=}\nProbably bug of repl")
                         else:
-                            logger.debug(f"Verified the reconstructed proof {block.proofaug_content=} with {proofaug_index=}")
+                            if not is_complete(result_verify):
+                                logger.warning(f"Reconstructed proof {block.proofaug_content=} is not complete")
+                                if require_reconstruct:
+                                    block.state = BlockState.NO_RECONSTRUCT
+                            else:
+                                logger.debug(f"Verified the reconstructed proof {block.proofaug_content=} with {proofaug_index=}")
                             result['proofaug_body'] = block.proofaug_content
                     return ps, result
 
+                # proofaug_content cannot indicate the type. it can be the original code.
+                # we should check the proofaug_index to determine the type.
                 proofState, result = verify_block(block)
                 complete = block.state == BlockState.COMPLETED
                 if complete:
@@ -438,6 +454,7 @@ class Lean4ServerProcess(mp.Process):
                 else:
                     success_type = 'failed'
                 verification_result = {
+                    "state": block.state,
                     "complete": complete,
                     "header": header,
                     "body": block.proofaug_content,
@@ -520,6 +537,9 @@ class Lean4ServerProcess(mp.Process):
                 inputs = self.task_queue.get()
                 if inputs is None:
                     break
+                elif inputs[0] == 'debug':
+                    # run the debug script here in the debug console
+                    breakpoint()
 
                 for _, request_id, task in inputs:
                     ret_code = self.repl_process.poll()

@@ -157,7 +157,7 @@ def train(args):
         max_length=args.max_len,
         temperature=args.temperature,
         top_p=args.top_p,
-        proof_aug=args.proof_aug,
+        proofaug=args.proofaug,
         hammer_list=args.hammer_list,
         remote_timeout=args.remote_timeout,
         step_timeout=args.step_timeout,
@@ -401,7 +401,9 @@ if __name__ == "__main__":
     parser.add_argument("--value_head_prefix", type=str, default="score")
     parser.add_argument("--ref_reward_offload", action="store_true", default=False)
     parser.add_argument("--agent_func_path", type=str, default=None, help="Agent script path")
-    parser.add_argument("--proof_aug", action="store_true", default=False, help="Enable proof augmentation")
+    parser.add_argument("--proofaug", action="store_true", default=False, help="Enable proof augmentation")
+    parser.add_argument("--proofaug_think", action="store_true", default=False, help="substitute the think content when proofaug success")
+    
     parser.add_argument('--hammer_list', nargs='+', default=None, help="see hint_dict in prover/utils.py for available options")
     parser.add_argument('--remote_timeout', type=float, default=60, help="timeout for remote reward model")
     parser.add_argument('--step_timeout', type=float, default=20, help="timeout for each step of for the repl")

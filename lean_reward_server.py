@@ -20,7 +20,7 @@ import sys
 
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement
+from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN
 
 logger = logging.getLogger("lean_reward_server")
 
@@ -28,9 +28,10 @@ class RewardRequest(BaseModel):
     queries: List[str]  # in fact prompt+response
     prompts: Optional[List[str]] = None  # in fact prompt only
     labels: Optional[List[str]] = None
-    proof_aug: bool = False
+    proofaug: bool = False
     hammer_list: Optional[List[str]|str] = None
     step_timeout: Optional[int] = None
+    require_reconstruct: bool = False
 
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
@@ -75,6 +76,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         args: Annotated[argparse.Namespace, Depends(get_args)],
         scheduler: Annotated[Lean4ServerScheduler, Depends(get_scheduler)]
     ):
+        """code MUST be included in a ```lean4 block, and we will extract the code."""
         n = len(reward_request.queries)
         request_id = str(uuid.uuid4())[:8]
         logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
@@ -82,12 +84,13 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         # although reward does not to be 100% accurate
         # but loose rules can lead to reward hacking.
         codes = []
-        if all([query.count("```lean4") == 1 for query in reward_request.queries]):
-            mode = "completion"
-        else:
-            mode = "chat"
+        mode = "completion"
+        for query in reward_request.queries:
+            if query.count("```lean4") != 1 or "<think>" in query or "<im_end>" in query:
+                mode = "chat"
+                break
+
         # codes_in_prompt = []
-        sep = ":="
         for i in range(n):
             query = reward_request.queries[i]
             if mode == "completion":
@@ -98,18 +101,22 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 code_in_prompt = extract_code(prompt)
                 response = query[len(prompt):]
                 code_in_response = extract_code(response, omit_think=True)
-                prefix = code_in_prompt.split(sep)[0]
-                sep_pos = code_in_response.find(sep)
-                if sep_pos == -1:
-                    logger.debug(f"No := or code block found in ...{response[-100:]}")
+                if code_in_response is None or code_in_prompt is None:
                     code = None
                 else:
-                    code = prefix + code_in_response[sep_pos:]
+                    prefix = code_in_prompt.split(DEF_SIGN)[0]
+                    sep_pos = code_in_response.find(DEF_SIGN)
+                    if sep_pos == -1:
+                        logger.debug(f"No {DEF_SIGN=} found in {code_in_response[-100:]}")
+                        code = None
+                    else:
+                        code = prefix + code_in_response[sep_pos:]
             codes.append(code)
         tasks = [{
             "code": code,
-            "proofaug": reward_request.proof_aug,
+            "proofaug": reward_request.proofaug,
             "hammer_list": reward_request.hammer_list,
+            "require_reconstruct": reward_request.require_reconstruct,
             "step_timeout": reward_request.step_timeout
         } for code in codes]
         
@@ -119,11 +126,6 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
-        if args.require_reconstruct:
-            for i in range(n):
-                if proofaug_bodies[i] is None and success_types[i] == "proofaug":
-                    logger.warning(f"Proofaug body is None while proofaug success for query {reward_request.queries[i]}")
-                    rewards[i] = 0.0
 
         i = random.randint(0, n - 1)
         debug_dict = {
@@ -146,9 +148,9 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             else:
                 assert isinstance(proofaug_body, str), f"Proofaug body is not a string: {proofaug_body}"
                 code = codes[i] # type: str
-                sep_pos = code.find(sep)
-                proofaug_proof = proofaug_body.partition(sep)[2]
-                proofaug_codes.append(code[:sep_pos] + sep + proofaug_proof)
+                sep_pos = code.find(DEF_SIGN)
+                proofaug_proof = proofaug_body.partition(DEF_SIGN)[2]
+                proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
 
         return {
             "rewards": rewards,
@@ -181,7 +183,6 @@ if __name__ == "__main__":
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
     parser.add_argument("--pty_restart_count", type=int, default=1000, help="Pty restart count")
-    parser.add_argument("--require_reconstruct", action="store_true", help="Require proofaug reconstruction correct to be reward 1")
     parser.add_argument("--time_reward", action="store_true", help="Use elapsed time as reward (not implemented yet)")
     args = parser.parse_args()
     

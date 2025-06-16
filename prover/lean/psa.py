@@ -73,6 +73,7 @@ class BlockState(StrEnum):
     PASSED = 'compilation_passed'
     STTM_FAILED = 'sttm_failed'
     COMPLETED = 'completed'
+    NO_RECONSTRUCT = 'no_reconstruct'
 
 class Snippet(object):
     """A snippet corresponding to a tactic or ends with := by. 
