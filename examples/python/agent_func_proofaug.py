@@ -41,11 +41,11 @@ async def call_remote_reward_model(
         print(f"Remote reward model error: {e}")
         return None
 
-async def step(state, action, label, **kwargs) -> Dict[str, Any]:
+async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
     """Execute one step of verification and return a random reward using torch.rand
 
     Args:
-        state: The input prompt/expression
+        observation: The input prompt/expression
         action: The language model's response
         label: Agent identifier or additional information
         kwargs: can include proofaug, hammer_list, etc.
@@ -54,14 +54,14 @@ async def step(state, action, label, **kwargs) -> Dict[str, Any]:
         Dict[str, Any]: A dictionary containing:
             - rewards: Reward value for advantage calculation
             - scores: Reward value for dynamic filtering
-            - next_state: The updated state after the step
+            - next_observation: The updated observation after the step
             - done: Boolean indicating if the episode is complete
             - sampling_params: Parameters for vLLM sampling
             - extra_logs: Additional logging information
     """
     # TODO: if want to add proofaug, we need to first modify vllm_engine_async.py
     proofaug = kwargs.get("proofaug", False)
-    ret_obj = await call_remote_reward_model(state+action, state, label, **kwargs)
+    ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs)
     ret_obj = dict() if ret_obj is None else ret_obj
     reward = ret_obj.get("rewards", [0.0])[0]
     proofaug_code = ret_obj.get("proofaug_codes", [None])[0]
@@ -99,12 +99,12 @@ async def step(state, action, label, **kwargs) -> Dict[str, Any]:
     else:
         ret_action = action
 
-    next_state = state + ret_action
+    next_observation = observation + ret_action
     # breakpoint()
     return {
         "rewards": reward,  # Rewards for advantage calculation
         "scores": reward,  # Scores for dynamic filtering (0-1 reward)
-        "next_state": next_state,  # The updated state for vLLM in next step
+        "next_observation": next_observation,  # The updated observation for vLLM in next step
         "done": True,  # Boolean indicating if the episode is complete
         "sampling_params": kwargs.get("sampling_params", None),  # Parameters for vLLM sampling in next step
         "extra_logs": {"dummy_scores": reward},  # Additional logging information
