@@ -9,7 +9,7 @@ import ray
 import torch
 
 from openrlhf.models.utils import compute_approx_kl, compute_reward, masked_mean
-from openrlhf.trainer.ray.launcher import PPORayActorGroup
+from openrlhf.trainer.ray.launcher import RayActorGroup
 from openrlhf.utils.logging_utils import init_logger
 from openrlhf.utils.utils import remove_pad_token, zero_pad_sequences
 
@@ -406,10 +406,10 @@ class SamplesGenerator:
 class RemoteExperienceMaker(ABC):
     def __init__(
         self,
-        actor_model_group: PPORayActorGroup,
-        critic_model_group: PPORayActorGroup,
-        reward_model_group: PPORayActorGroup,
-        initial_model_group: PPORayActorGroup,
+        actor_model_group: RayActorGroup,
+        critic_model_group: RayActorGroup,
+        reward_model_group: RayActorGroup,
+        initial_model_group: RayActorGroup,
         kl_controller,
         strategy=None,
         tokenizer=None,
@@ -691,8 +691,8 @@ class RemoteExperienceMaker(ABC):
             # remove unnecessary info
             experience.kl = None
 
-        # Normalize advantages across all experiences
-        if self.args.advantage_estimator not in ["group_norm", "dr_grpo"]:
+        # Normalize advantages across all experiences for GAE, REINFORCE, and REINFORCE-baseline
+        if self.args.advantage_estimator in ["gae", "reinforce", "reinforce_baseline"]:
             all_advantages = []
             all_action_masks = []
             for exp in experiences:

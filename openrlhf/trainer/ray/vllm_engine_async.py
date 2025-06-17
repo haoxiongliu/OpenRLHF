@@ -21,8 +21,8 @@ class AgentInstance:
         else:
             raise ValueError("Agent path must be a Python file")
 
-    async def step(self, state, action, label, **kwargs):
-        return await self.agent_step(state, action, label, **kwargs)
+    async def step(self, observation, action, label, **kwargs):
+        return await self.agent_step(observation, action, label, **kwargs)
 
 
 @ray.remote
@@ -102,8 +102,8 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 # Create a unique agent instance for this prompt
                 agent_instance = AgentInstance.remote(self.agent_func_path)
 
-                # Initialize states and actions for the current prompt
-                state = prompt
+                # Initialize observations and actions for the current prompt
+                observation = prompt
                 action_ranges = []
                 total_reward = 0
                 final_scores = 0
@@ -114,21 +114,21 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 sample_structured_output = None
                 for step_idx in range(max_steps):
                     # Next sampling budget
-                    state_tokens_len = len(
-                        hf_tokenizer(state, add_special_tokens=False, return_tensors="pt")["input_ids"][0]
+                    observation_tokens_len = len(
+                        hf_tokenizer(observation, add_special_tokens=False, return_tensors="pt")["input_ids"][0]
                     )
-                    sampling_params.max_tokens = max_length - state_tokens_len
+                    sampling_params.max_tokens = max_length - observation_tokens_len
                     # No budget to generate, break
                     if sampling_params.max_tokens <= 0:
                         break
 
                     # Generate response asynchronously
-                    request_output = await self.generate_async(state, sampling_params)
+                    request_output = await self.generate_async(observation, sampling_params)
                     action = request_output.outputs[0].text
                     original_action_len = len(action)
-                    action_start = len(state)
+                    action_start = len(observation)
 
-                    # Call step function to get reward and next state
+                    # Call step function to get reward and next observation
                     # Use asyncio.to_thread to make Ray remote call non-blocking
                     # TODO: add kwargs config by a yaml file
                     kwargs = {"sampling_params": sampling_params,
@@ -136,22 +136,22 @@ class LLMRayActorAsync(BaseLLMRayActor):
                               "hammer_list": hammer_list,
                               "remote_timeout": remote_timeout,
                               "step_timeout": step_timeout}
-                    result = await agent_instance.step.remote(state, action, label, **kwargs)
+                    result = await agent_instance.step.remote(observation, action, label, **kwargs)
                     reward = result["rewards"]
                     if isinstance(reward, torch.Tensor):
                         reward = reward.item()
                     total_reward += reward
                     final_scores = result.get("scores", total_reward)
-                    state = result["next_state"]
+                    observation = result["next_observation"]
                     done = result["done"]
                     extra_logs = result.get("extra_logs", {})
 
                     # consider structured output from the environment
-                    action_end = len(state)
+                    action_end = len(observation)
                     action_ranges.append((action_start, action_end))
                     if original_action_len != action_end - action_start and random.random() < 0.1:
                         sample_original_action = action
-                        sample_structured_output = state[action_start:action_end]
+                        sample_structured_output = observation[action_start:action_end]
 
                     # Get sampling params from the environment step
                     if result.get("sampling_params", None):
@@ -167,7 +167,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 final_response = {
                     "prompt": prompt,
                     "label": label,
-                    "state": state,
+                    "observation": observation,
                     "reward": total_reward,
                     "scores": final_scores,
                     "extra_logs": extra_logs,
