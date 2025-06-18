@@ -45,6 +45,7 @@ class SamplesGeneratorAsync(SamplesGenerator):
                     max_length=truncate_length,
                     hf_tokenizer=self.tokenizer,
                     proofaug=kwargs.get("proofaug", False),
+                    proofaug_ans_subst=kwargs.get("proofaug_ans_subst", False),
                     hammer_list=kwargs.get("hammer_list", None),
                     remote_timeout=kwargs.get("remote_timeout", None),
                     step_timeout=kwargs.get("step_timeout", None),

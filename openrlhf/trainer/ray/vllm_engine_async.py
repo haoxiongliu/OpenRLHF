@@ -78,7 +78,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
     async def add_requests(self, 
             sampling_params, prompts, labels, 
             max_length, hf_tokenizer=None, max_steps=10000, 
-            proofaug=False, hammer_list=None,
+            proofaug=False, proofaug_ans_subst=False, hammer_list=None,
             remote_timeout=None, step_timeout=None
         ):
         """
@@ -133,6 +133,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     # TODO: add kwargs config by a yaml file
                     kwargs = {"sampling_params": sampling_params,
                               "proofaug": proofaug,
+                              "proofaug_ans_subst": proofaug_ans_subst,
                               "hammer_list": hammer_list,
                               "remote_timeout": remote_timeout,
                               "step_timeout": step_timeout}

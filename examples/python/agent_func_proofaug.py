@@ -61,6 +61,7 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
     """
     # TODO: if want to add proofaug, we need to first modify vllm_engine_async.py
     proofaug = kwargs.get("proofaug", False)
+    proofaug_ans_subst = kwargs.get("proofaug_ans_subst", False)
     ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs)
     ret_obj = dict() if ret_obj is None else ret_obj
     reward = ret_obj.get("rewards", [0.0])[0]
@@ -69,7 +70,7 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
 
     # find ```lean4 ``` code block in action and replace it with proofaug_proof
     # TODO: use PSA to replace the code blocks in the thinking part
-    if proofaug and proofaug_code and success_type == "proofaug":
+    if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
         think_start = action.find('<think>')
         think_end = action.rfind('</think>')
         
