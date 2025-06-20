@@ -182,7 +182,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
-    parser.add_argument("--pty_restart_count", type=int, default=1000, help="Pty restart count")
+    parser.add_argument("--pty_restart_count", type=int, default=10, help="Pty restart count")
     parser.add_argument("--time_reward", action="store_true", help="Use elapsed time as reward (not implemented yet)")
     args = parser.parse_args()
     
