@@ -534,7 +534,7 @@ class Lean4ServerProcess(mp.Process):
         """Main worker process loop - runs once per process"""
         if self.use_pty:
             init_ret = self._clean_init_repl()
-            print(f"init_ret: {init_ret}")
+            # print(f"init_ret: {init_ret}")
             if not init_ret:
                 logger.error(f"Process {self.idx}: Failed to create initial REPL process, exiting")
                 return
