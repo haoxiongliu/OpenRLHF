@@ -18,7 +18,7 @@ from tqdm import tqdm
 import openai
 import requests  # Add for HTTP requests to lean_reward_server
 
-
+# legacy
 async def compile_codes(
     codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False, args=None
 ):

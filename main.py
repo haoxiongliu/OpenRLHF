@@ -7,6 +7,7 @@ Usage:
 """
 import sys
 import inspect
+import uvicorn
 from prover.utils import compare_compilation_summaries, get_cumulative_pass
 
 # Define your commands here
@@ -19,12 +20,26 @@ def bar(x=0):
     """Example command bar that prints x."""
     print(f"bar called with x={x}")
 
+def start_command_generator(host="0.0.0.0", port=8123, reload=False):
+    """Start the Lean Command Generator web service with REPL backend."""
+    print(f"Starting Lean Command Generator web service...")
+    print(f"Server will be available at: http://{host}:{port}")
+    print(f"API documentation at: http://{host}:{port}/api/docs")
+    
+    uvicorn.run(
+        "prover.command_generator.app:app",
+        host=host,
+        port=int(port),
+        reload=bool(reload)
+    )
+
 # Mapping from command name to function
 commands = {
     'foo': foo,
     'bar': bar,
     'compare_compilation_summaries': compare_compilation_summaries,
     'get_cumulative_pass': get_cumulative_pass,
+    'start_command_generator': start_command_generator,
 }
 
 def main():
@@ -68,7 +83,7 @@ def main():
             if annotation is bool:
                 v = value.lower()
                 value = v == "true"
-            else:
+            elif annotation != inspect._empty:
                 value = annotation(value)
             kwargs[name] = value
         else:

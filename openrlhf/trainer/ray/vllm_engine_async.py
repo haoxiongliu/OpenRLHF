@@ -94,7 +94,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
         """
 
         # Create semaphore to control concurrent task execution
-        NUM_TASKS = os.environ.get("OPENRLHF_ASYNC_NUM_TASKS", 128)
+        NUM_TASKS = int(os.environ.get("OPENRLHF_ASYNC_NUM_TASKS", 128))
         semaphore = asyncio.Semaphore(NUM_TASKS)
 
         async def execute_agent(prompt, label, sampling_params):

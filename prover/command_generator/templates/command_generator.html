@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lean Command Generator</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 120px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+        }
+        .form-row {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .form-row > .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+        }
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+            margin-right: 10px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .apply-btn {
+            background: #28a745;
+        }
+        .apply-btn:hover {
+            background: #218838;
+        }
+        .copy-btn {
+            background: #17a2b8;
+            font-size: 12px;
+            padding: 5px 10px;
+            margin-left: 10px;
+        }
+        .copy-btn:hover {
+            background: #138496;
+        }
+        .clear-btn {
+            background: #6c757d;
+        }
+        .clear-btn:hover {
+            background: #545b62;
+        }
+        .result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .result h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .json-output {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border-left-color: #dc3545;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .help-text {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+        #commandHistory {
+            margin-top: 40px;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .history-item {
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+        .history-header {
+            background: #f8f9fa;
+            padding: 10px 15px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .history-timestamp {
+            font-size: 12px;
+            color: #666;
+        }
+        .history-command {
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            color: #333;
+        }
+        .history-status {
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            color: white;
+        }
+        .status-success { background: #28a745; }
+        .status-error { background: #dc3545; }
+        .status-warning { background: #ffc107; color: #000; }
+        .history-content {
+            padding: 15px;
+        }
+        .history-result {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            overflow-x: auto;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Lean Command Generator</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">
+            Generate Lean commands using the to_command function with real-time preview
+        </p>
+        
+        <form id="commandForm">
+            <div class="form-group">
+                <label for="code">Code (Required):</label>
+                <textarea id="code" name="code" placeholder="Enter your Lean code here..." required></textarea>
+                <div class="help-text">The Lean code/command to process</div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="env">Environment:</label>
+                    <input type="number" id="env" name="env" placeholder="e.g., 1, 2, 3...">
+                    <div class="help-text">Optional environment number</div>
+                </div>
+                <div class="form-group">
+                    <label for="proofState">Proof State:</label>
+                    <input type="number" id="proofState" name="proofState" placeholder="e.g., 1, 2, 3...">
+                    <div class="help-text">Optional proof state number</div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="sorries">Sorries:</label>
+                <select id="sorries" name="sorries">
+                    <option value="">None</option>
+                    <option value="grouped">grouped</option>
+                    <option value="individual">individual</option>
+                </select>
+                <div class="help-text">Sorry handling mode (optional)</div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 30px;">
+                <button type="submit">Generate Command</button>
+                <button type="button" class="apply-btn" onclick="applyToRepl()">Apply to REPL</button>
+                <button type="button" class="clear-btn" onclick="clearForm()">Clear Form</button>
+            </div>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Generating command...</p>
+        </div>
+        
+        <div id="result" style="display: none;"></div>
+        
+        <!-- Command History Section -->
+        <div id="commandHistory" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2 style="margin: 0;">Recent REPL Commands</h2>
+                <button onclick="clearHistory()" class="clear-btn" style="padding: 8px 15px; font-size: 14px;">Clear History</button>
+            </div>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script>
+        // Command history storage
+        let commandHistory = [];
+        const MAX_HISTORY = 10; // Keep last 10 commands
+        
+        function addToHistory(command, result, timestamp) {
+            const historyItem = {
+                command: command,
+                result: result,
+                timestamp: timestamp
+            };
+            
+            commandHistory.unshift(historyItem); // Add to beginning
+            if (commandHistory.length > MAX_HISTORY) {
+                commandHistory = commandHistory.slice(0, MAX_HISTORY); // Keep only last MAX_HISTORY items
+            }
+            
+            updateHistoryDisplay();
+        }
+        
+        function updateHistoryDisplay() {
+            const historyDiv = document.getElementById('commandHistory');
+            const historyList = document.getElementById('historyList');
+            
+            if (commandHistory.length === 0) {
+                historyDiv.style.display = 'none';
+                return;
+            }
+            
+            historyDiv.style.display = 'block';
+            
+            historyList.innerHTML = commandHistory.map((item, index) => {
+                // Determine status
+                let statusClass = 'status-success';
+                let statusText = 'Success';
+                
+                if (item.result.messages) {
+                    const errors = item.result.messages.filter(m => m.severity === 'error');
+                    const infos = item.result.messages.filter(m => m.severity === 'info');
+                    const isComplete = infos.some(info => info.data && info.data.includes('Goals accomplished'));
+                    
+                    if (errors.length > 0) {
+                        statusClass = 'status-error';
+                        statusText = 'Error';
+                    } else if (isComplete) {
+                        statusClass = 'status-success';
+                        statusText = 'Complete';
+                    }
+                } else if (item.result.env !== undefined) {
+                    statusClass = 'status-success';
+                    statusText = 'Success';
+                }
+                
+                return `
+                    <div class="history-item">
+                        <div class="history-header">
+                            <div>
+                                <div class="history-command">${JSON.stringify(item.command)}</div>
+                                <div class="history-timestamp">${item.timestamp}</div>
+                            </div>
+                            <div class="history-status ${statusClass}">${statusText}</div>
+                        </div>
+                        <div class="history-content">
+                            <div class="history-result">${JSON.stringify(item.result, null, 2)}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        document.getElementById('commandForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData(e.target);
+            const data = {
+                code: formData.get('code'),
+                env: formData.get('env') ? parseInt(formData.get('env')) : null,
+                proofState: formData.get('proofState') ? parseInt(formData.get('proofState')) : null,
+                sorries: formData.get('sorries') || null
+            };
+            
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            
+            try {
+                const response = await fetch('/generate_command', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                
+                // Show result
+                const resultDiv = document.getElementById('result');
+                if (result.success) {
+                    resultDiv.innerHTML = `
+                        <div class="result">
+                            <h3>Generated Command:
+                                <button class="copy-btn" onclick="copyToClipboard('${result.command_json.replace(/'/g, "\\'")}')">Copy JSON</button>
+                            </h3>
+                            <div class="json-output">${result.command_json}</div>
+                        </div>
+                    `;
+                    resultDiv.className = '';
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            <h3>Error:</h3>
+                            <p>${result.error}</p>
+                        </div>
+                    `;
+                }
+                resultDiv.style.display = 'block';
+                
+            } catch (error) {
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                
+                // Show error
+                const resultDiv = document.getElementById('result');
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>Network Error:</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+            }
+        });
+        
+        function clearForm() {
+            document.getElementById('commandForm').reset();
+            document.getElementById('result').style.display = 'none';
+        }
+        
+        function clearHistory() {
+            if (confirm('Are you sure you want to clear the command history?')) {
+                commandHistory = [];
+                updateHistoryDisplay();
+            }
+        }
+        
+        async function applyToRepl() {
+            const formData = new FormData(document.getElementById('commandForm'));
+            const data = {
+                code: formData.get('code'),
+                env: formData.get('env') ? parseInt(formData.get('env')) : null,
+                proofState: formData.get('proofState') ? parseInt(formData.get('proofState')) : null,
+                sorries: formData.get('sorries') || null
+            };
+            
+            if (!data.code) {
+                alert('Please enter Lean code first');
+                return;
+            }
+            
+            // Show loading
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            
+            try {
+                const response = await fetch('/apply_to_repl', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                
+                // Add to history - use the command from REPL response
+                const timestamp = new Date().toLocaleString();
+                addToHistory(result.command || data, result.result || result, timestamp);
+                
+                // Show result
+                const resultDiv = document.getElementById('result');
+                
+                // Handle REPL response structure
+                if (response.ok) {
+                    // Check for errors in messages
+                    const errors = result.messages ? result.messages.filter(m => m.severity === 'error') : [];
+                    const warnings = result.messages ? result.messages.filter(m => m.severity === 'warning') : [];
+                    const infos = result.messages ? result.messages.filter(m => m.severity === 'info') : [];
+                    
+                    // Check if complete (Goals accomplished)
+                    const isComplete = infos.some(info => info.data && info.data.includes('Goals accomplished'));
+                    const hasErrors = errors.length > 0;
+                    
+                    let statusText, statusColor;
+                    if (isComplete) {
+                        statusText = '✅ Complete';
+                        statusColor = '#28a745';
+                    } else if (hasErrors) {
+                        statusText = '❌ Failed';
+                        statusColor = '#dc3545';
+                    } else if (result.env !== undefined) {
+                        statusText = '✅ Success';
+                        statusColor = '#28a745';
+                    } else {
+                        statusText = '⚠️ Unknown';
+                        statusColor = '#ffc107';
+                    }
+                    
+                    let sections = [];
+                    
+                    // Environment info
+                    if (result.env !== undefined) {
+                        sections.push(`<p><strong>Environment:</strong> ${result.env}</p>`);
+                    }
+                    if (result.proofState !== undefined) {
+                        sections.push(`<p><strong>Proof State:</strong> ${result.proofState}</p>`);
+                    }
+                    
+                    // Errors section
+                    if (errors.length > 0) {
+                        sections.push(`
+                            <h4>Errors:</h4>
+                            <ul>
+                                ${errors.map(error => `<li>${error.data || error}</li>`).join('')}
+                            </ul>
+                        `);
+                    }
+                    
+                    // Warnings section
+                    if (warnings.length > 0) {
+                        sections.push(`
+                            <h4>Warnings:</h4>
+                            <ul>
+                                ${warnings.map(warning => `<li>${warning.data || warning}</li>`).join('')}
+                            </ul>
+                        `);
+                    }
+                    
+                    // Info section
+                    if (infos.length > 0) {
+                        sections.push(`
+                            <h4>Information:</h4>
+                            <ul>
+                                ${infos.map(info => `<li>${info.data || info}</li>`).join('')}
+                            </ul>
+                        `);
+                    }
+                    
+                    resultDiv.innerHTML = `
+                        <div class="result">
+                            <h3>REPL Result: <span style="color: ${statusColor}">${statusText}</span></h3>
+                            ${sections.join('')}
+                            <h4>Full Result:</h4>
+                            <div class="json-output">${JSON.stringify(result, null, 2)}</div>
+                        </div>
+                    `;
+                    resultDiv.className = '';
+                } else {
+                    // Handle HTTP error response
+                    resultDiv.innerHTML = `
+                        <div class="result error">
+                            <h3>REPL Error:</h3>
+                            <p>${result.error || 'Unknown error occurred'}</p>
+                        </div>
+                    `;
+                }
+                resultDiv.style.display = 'block';
+                
+            } catch (error) {
+                // Hide loading
+                document.getElementById('loading').style.display = 'none';
+                
+                // Show error
+                const resultDiv = document.getElementById('result');
+                resultDiv.innerHTML = `
+                    <div class="result error">
+                        <h3>Network Error:</h3>
+                        <p>${error.message}</p>
+                    </div>
+                `;
+                resultDiv.style.display = 'block';
+            }
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                // Show temporary feedback
+                const button = event.target;
+                const originalText = button.textContent;
+                button.textContent = 'Copied!';
+                setTimeout(() => {
+                    button.textContent = originalText;
+                }, 2000);
+            }).catch(function(err) {
+                console.error('Could not copy text: ', err);
+                alert('Failed to copy to clipboard');
+            });
+        }
+        
+        // Real-time preview (optional enhancement)
+        let timeoutId;
+        document.getElementById('code').addEventListener('input', function() {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => {
+                // Could add real-time preview here if needed
+            }, 500);
+        });
+    </script>
+</body>
+</html> 

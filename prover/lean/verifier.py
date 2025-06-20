@@ -129,20 +129,23 @@ class Lean4ServerProcess(mp.Process):
             os.close(slave_fd)
             return True
         except Exception as e:
+            print(f"Failed to initialize REPL: {str(e)}")
             logger.error(f"Process {self.idx}: Failed to initialize REPL: {str(e)}", stack_info=True)
             return False
     
     def _reset_latest_state(self):
         self.latest_state = None
 
-    def _to_command(self,code, env=None, proofState=None, sorries=None, verbose=False):
+    def _to_command(self,code, env=None, proofState=None, sorries=None, verbose=False, use_latest_state=False):
         if env != None:
             state = {"env": env}
         elif proofState != None:
             state = {"proofState": proofState}
-        else:
+        elif use_latest_state:
             env_keys = ["env", "proofState"]
             state = {k: v for k, v in self.latest_state.items() if k in env_keys} if self.latest_state else {}
+        else:
+            state = {}
         code_key = "tactic" if "proofState" in state.keys() else "cmd"
         cmd = {code_key: code}
         cmd.update(state)
@@ -210,6 +213,7 @@ class Lean4ServerProcess(mp.Process):
                 try:
                     chunk = os.read(self.master_fd, 4096)
                 except (OSError, IOError) as e:
+                    raise ValueError(f"Unexpected error reading from REPL: {str(e)}")
                     # Handle common errors that can occur even after select
                     if e.errno in (errno.EBADF, errno.EINVAL):  # Bad file descriptor or Invalid argument
                         return {"messages": [{"data": f"REPL process file descriptor error: {str(e)}", "severity": "error"}]}
@@ -217,12 +221,13 @@ class Lean4ServerProcess(mp.Process):
                         continue  # Retry the read
                     else:
                         return {"messages": [{"data": f"Unexpected error reading from REPL: {str(e)}", "severity": "error"}]}
+                
                 if not chunk:  # EOF
                     break
                     
                 response += chunk
                 if len(response) > max_size:
-                    return {"messages": [{"data": "REPL process response too large", "severity": "error"}]}
+                    raise ValueError(f"REPL process response too large {len(response)=} > {max_size=}")
 
                 # REPL protocol delimiter
                 if b'\r\n\r\n' in response:
@@ -246,7 +251,7 @@ class Lean4ServerProcess(mp.Process):
 
                 ret_obj = response_obj
             except Exception as e:
-                ret_obj = {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
+                ret_obj = {"messages": [{"data": "response handling error: " + e.__class__.__name__ + str(e), "severity": "error"}]}
             
         except Exception as e:
             self._clean_init_repl()
@@ -528,7 +533,9 @@ class Lean4ServerProcess(mp.Process):
     def run(self):
         """Main worker process loop - runs once per process"""
         if self.use_pty:
-            if not self._clean_init_repl():
+            init_ret = self._clean_init_repl()
+            print(f"init_ret: {init_ret}")
+            if not init_ret:
                 logger.error(f"Process {self.idx}: Failed to create initial REPL process, exiting")
                 return
 
@@ -537,10 +544,6 @@ class Lean4ServerProcess(mp.Process):
                 inputs = self.task_queue.get()
                 if inputs is None:
                     break
-                elif inputs[0] == 'debug':
-                    # run the debug script here in the debug console
-                    breakpoint()
-
                 for _, request_id, task in inputs:
                     ret_code = self.repl_process.poll()
                     if ret_code is not None:
