@@ -62,7 +62,10 @@ async def compile_codes_with_server(queries, args):
     request_data = {
         "queries": queries,  # Send codes as queries in completion mode
         "proofaug": args.proofaug,
-        "hammer_list": args.hammer_list
+        "pa_with_orig": args.pa_with_orig,
+        "hammer_list": args.hammer_list,
+        "require_reconstruct": args.require_reconstruct,
+        "step_timeout": args.timeout,
     }
     
     
@@ -364,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
     parser.add_argument('--top_p', default=0.95, type=float)
-    parser.add_argument('--timeout', default=300, type=int, help="step timeout for the lean server")
+    parser.add_argument('--timeout', default=180, type=int, help="step timeout for the lean server")
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)
@@ -377,6 +380,7 @@ if __name__ == "__main__":
     parser.add_argument('--hammer_list', nargs='+', default=None)
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pa_with_orig', action='store_true', default=False)
+    parser.add_argument('--require_reconstruct', action='store_true', default=False)
     parser.add_argument('--proofaug_legacy', action='store_true', default=False)
     parser.add_argument('--pty_restart_count', default=100, type=int)
     parser.add_argument('--random_order', action='store_true', default=False)
