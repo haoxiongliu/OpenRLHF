@@ -81,13 +81,11 @@ async def compile_codes_with_server(queries, args):
     outputs_list = []
     for i in range(len(queries)):
         reward = server_result["rewards"][i]
-        success_type = server_result["success_types"][i]
-        proofaug_code = server_result["proofaug_codes"][i]
         # Map server response to compile_codes format
         verification_result = {
             "complete": reward > 0,  # Same logic as lean_reward_server
-            "success_type": success_type,
-            "proofaug_body": proofaug_code,
+            "success_type": server_result["success_types"][i],
+            "proofaug_body": server_result["proofaug_codes"][i],
             "header": None,
             "body": None,
             "verify_time": 0  # Not provided by server

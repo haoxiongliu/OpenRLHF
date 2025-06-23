@@ -24,6 +24,7 @@ from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE
 
 logger = logging.getLogger("lean_reward_server")
 
+# you should always modify this first before modifying the eval_pipeline.py and vllm_engine_async.py
 class RewardRequest(BaseModel):
     queries: List[str]  # in fact prompt+response
     prompts: Optional[List[str]] = None  # in fact prompt only
@@ -43,7 +44,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     logger.info(f"Initializing Lean4ServerScheduler with {args.max_concurrent} concurrent requests and {args.memory_limit}GB memory limit")
     scheduler = Lean4ServerScheduler(
         max_concurrent_requests=args.max_concurrent, 
-        timeout=args.timeout, 
+        timeout=args.step_timeout, 
         memory_limit=args.memory_limit,
         name='reward_verifier',
         use_pty=args.use_pty,
@@ -125,9 +126,21 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_request_ids = scheduler.submit_all_request(tasks)
         verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
-        rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
+        # add time reward
+        if args.time_reward:
+            rewards = [result.get("time_reward", 0.0) for result in verification_results]
+        else:
+            rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
+
+        verify_times = [result.get("verify_time", 0.0) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
+        
+        for i in range(n):
+            if verification_results[i].get("complete", False):
+                rewards[i] = 1.0 - args.time_reward_ratio * min(verify_times[i]/args.time_reward_threshold, 1.0)
+            else:
+                rewards[i] = 0.0
 
         i = random.randint(0, n - 1)
         debug_dict = {
@@ -137,6 +150,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "proofaug_body": proofaug_bodies[i],
             "success_type": success_types[i],
             "errors": verification_results[i].get("system_errors", []),
+            "verify_time": verify_times[i],
         }
         logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
 
@@ -158,6 +172,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "rewards": rewards,
             "proofaug_codes": proofaug_codes,
             "success_types": success_types,
+            "verify_times": verify_times,
         }
     
     return app
@@ -177,7 +192,6 @@ if __name__ == "__main__":
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
     parser.add_argument("--repl_path", type=str, default=None, help="Repl executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
-    parser.add_argument("--timeout", type=int, default=60, help="DO NOT USE THIS SCRIPT FOR EVALUATION. Low timeout to encourage fast verification.")
     parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--log_level", type=str, default="info", help="debug, info, warning, error, critical")
@@ -185,7 +199,9 @@ if __name__ == "__main__":
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
     parser.add_argument("--pty_restart_count", type=int, default=10, help="Pty restart count")
-    parser.add_argument("--time_reward", action="store_true", help="Use elapsed time as reward (not implemented yet)")
+    parser.add_argument("--step_timeout", type=int, default=60, help="Step timeout for the lean server")
+    parser.add_argument("--time_reward_threshold", type=int, default=120, help="Time reward threshold in seconds")
+    parser.add_argument("--time_reward_ratio", type=float, default=0.0, help="Use elapsed time as reward (not implemented yet)")
     args = parser.parse_args()
     
     log_level = getattr(logging, args.log_level.upper())
