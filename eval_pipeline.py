@@ -75,24 +75,23 @@ async def compile_codes_with_server(queries, args):
         json=request_data,
     )
     response.raise_for_status()
-    server_result = response.json()
+    results = response.json()
     
     # Convert server response to the format expected by eval_pipeline
     outputs_list = []
     for i in range(len(queries)):
-        reward = server_result["rewards"][i]
+        verification_result = {k: v[i] for k, v in results.items()}
+        verification_result["complete"] = verification_result["reward"] > 0
         # Map server response to compile_codes format
-        verification_result = {
-            "complete": reward > 0,  # Same logic as lean_reward_server
-            "success_type": server_result["success_types"][i],
-            "proofaug_body": server_result["proofaug_codes"][i],
-            "header": None,
-            "body": None,
-            "verify_time": 0  # Not provided by server
-        }
+        # verification_result = {
+        #     "complete": reward > 0,  # Same logic as lean_reward_server
+        #     "success_type": results["success_types"][i],
+        #     "proofaug_code": results["proofaug_codes"][i],
+        #     "verify_time": results["verify_times"][i]  # Not provided by server
+        # }
         outputs_list.append(verification_result)
     
-    logger.info(f"Received results from lean_reward_server: {sum(server_result['rewards'])} successful out of {len(queries)}")
+    logger.info(f"Received results from lean_reward_server: {sum(results['rewards'])} successful out of {len(queries)}")
     return outputs_list
 
 

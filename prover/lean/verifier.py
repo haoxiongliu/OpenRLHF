@@ -453,6 +453,7 @@ class Lean4ServerProcess(mp.Process):
                 # proofaug_content cannot indicate the type. it can be the original code.
                 # we should check the proofaug_index to determine the type.
                 proofState, result = verify_block(block)
+                errors = extract_errors(result)
                 complete = block.state == BlockState.COMPLETED
                 if complete:
                     success_type = 'original' if not proofaug_index else 'proofaug'
@@ -461,6 +462,7 @@ class Lean4ServerProcess(mp.Process):
                 verification_result = {
                     "state": block.state,
                     "complete": complete,
+                    "errors": errors,
                     "header": header,
                     "body": block.proofaug_content,
                     "success_type": success_type,
