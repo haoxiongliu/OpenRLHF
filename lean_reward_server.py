@@ -95,7 +95,9 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         # codes_in_prompt = []
         for i in range(n):
             query = reward_request.queries[i]
-            if mode == "completion":
+            if not query:
+                code = None
+            elif mode == "completion":
                 code = extract_code(query)
             elif mode == "chat":
                 # kimina prompt, need to extract the prefix from the prompt

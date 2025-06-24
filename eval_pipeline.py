@@ -300,7 +300,7 @@ def main(args):
     if args.use_lean_server:
         # Use lean_reward_server for compilation
         # TODO: directly pass the complete input+output to the server
-        queries = [f"```lean4\n{code}\n```" for code in codes]
+        queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
         outputs_list = asyncio.run(compile_codes_with_server(queries, args))
     else:
         # Use local compilation method

@@ -422,7 +422,7 @@ class Lean4ServerProcess(mp.Process):
                                 if ps_cand == sttm_ps:
                                     sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
                                 else:
-                                    expected_indent = n_indent(block.parts[1])
+                                    expected_indent = n_indent(block.parts[1].content)
                                     sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*expected_indent + hammer)
                                     
                                 block._proofaug_parts = [sttm_snippet]
