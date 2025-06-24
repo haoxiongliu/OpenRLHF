@@ -478,7 +478,7 @@ class Lean4ServerProcess(mp.Process):
             verification_result = {
                 "pass": False,
                 "complete": False,
-                "errors": f"exception in verifying the code: {e.__class__.__name__} {e}",
+                "errors": f"exception in verifying {code=}: {e.__class__.__name__} {e}",
                 "system_errors": traceback.format_exc(),
                 "system_messages": system_messages
             }
