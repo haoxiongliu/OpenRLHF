@@ -130,7 +130,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verify_times = [result.get("verify_time", 0.0) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
-        errors = [result.get("errors", None) for result in verification_results]
+        errorss = [result.get("errors", None) for result in verification_results]
 
         rewards = []
         for i in range(n):
@@ -147,7 +147,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "reward": rewards[i],
             "proofaug_body": proofaug_bodies[i],
             "success_type": success_types[i],
-            "errors": errors[i],
+            "errors": errorss[i],
             "verify_time": verify_times[i],
         }
         logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
@@ -171,7 +171,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "proofaug_codes": proofaug_codes,
             "success_types": success_types,
             "verify_times": verify_times,
-            "errors": errors,
+            "errorss": errorss,
         }
     
     return app
