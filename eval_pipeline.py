@@ -20,10 +20,10 @@ import requests  # Add for HTTP requests to lean_reward_server
 
 # legacy
 async def compile_codes(
-    codes, cpu, memory_limit, timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False, args=None
+    codes, cpu, memory_limit, step_timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False, args=None
 ):
     lean4_scheduler = Lean4ServerScheduler(
-        max_concurrent_requests=cpu, timeout=timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
+        max_concurrent_requests=cpu, timeout=step_timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
     )
     tasks = [{
             "code": code,
@@ -65,7 +65,7 @@ async def compile_codes_with_server(queries, args):
         "pa_with_orig": args.pa_with_orig,
         "hammer_list": args.hammer_list,
         "require_reconstruct": args.require_reconstruct,
-        "step_timeout": args.timeout,
+        "step_timeout": args.step_timeout,
     }
     
     
@@ -306,7 +306,7 @@ def main(args):
     else:
         # Use local compilation method
         outputs_list = asyncio.run(compile_codes(
-            codes, args.cpu, args.memory_limit, args.timeout, args.ast, args.tactics, 
+            codes, args.cpu, args.memory_limit, args.step_timeout, args.ast, args.tactics, 
             args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig, args))
     
     for i in range(len(to_inference_codes)):
@@ -365,7 +365,7 @@ if __name__ == "__main__":
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
     parser.add_argument('--top_p', default=0.95, type=float)
-    parser.add_argument('--timeout', default=180, type=int, help="step timeout for the lean server")
+    parser.add_argument('--step_timeout', default=180, type=int, help="step timeout for the lean server")
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="logs/summary.log", type=str)

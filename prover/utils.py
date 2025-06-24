@@ -38,6 +38,7 @@ HINT_DICT = {
     'ring_nf': r"ring_nf",
     'simp_all': r"simp_all",
     "norm_num": r"norm_num",
+    "bound": r"bound",
     "leanhammer": r"hammer",
     "leanhammer_0": r"hammer {aesopPremises := 0, autoPremises := 0}",
     "leanhammer_1": r"hammer {aesopPremises := 1, autoPremises := 1}",
