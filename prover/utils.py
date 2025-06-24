@@ -30,14 +30,21 @@ HINT_DICT = {
     'hint': r"hint",
     'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith",
     "my_hint_v0.1": r"try field_simp [*] at *; try norm_num [*]; try nlinarith",
-    'aesop': r"try aesop",
+    'aesop': r"aesop",
     'aesop_v0.1': r"try aesop; try norm_num [*]",
-    'omega': r"try omega",
-    'nlinarith': r"try nlinarith",
-    "linarith": r"try linarith",
-    'ring_nf': r"try ring_nf",
-    'simp_all': r"try simp_all",
-    "norm_num": r"try norm_num",
+    'omega': r"omega",
+    'nlinarith': r"nlinarith",
+    "linarith": r"linarith",
+    'ring_nf': r"ring_nf",
+    'simp_all': r"simp_all",
+    "norm_num": r"norm_num",
+    "leanhammer": r"hammer",
+    "leanhammer_0": r"hammer {aesopPremises := 0, autoPremises := 0}",
+    "leanhammer_1": r"hammer {aesopPremises := 1, autoPremises := 1}",
+    "leanhammer_2": r"hammer {aesopPremises := 2, autoPremises := 2}",
+    "leanhammer_3": r"hammer {aesopPremises := 3, autoPremises := 3}",
+    "leanhammer_4": r"hammer {aesopPremises := 4, autoPremises := 4}",
+    "leanhammer_5": r"hammer {aesopPremises := 5, autoPremises := 5}",
 }
 
 
@@ -571,6 +578,7 @@ def extract_errors(result: dict) -> list[str]:
     "data":
     "unsolved goals\ny : ℝ\nh₀ : 0 ≤ 19 + 3 * y\nh₁ : √(19 + 3 * y) = 7\nh₁' : 0 ≤ 19 + 3 * y\n⊢ y = 10"}],
     "env": 2}    
+    
     {'message': 'Lean error:\n<input>:1:1: unknown tactic'}
     """
     errors = []

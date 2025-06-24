@@ -7,3 +7,8 @@
 	path = repl
 	url = https://github.com/haoxiongliu/repl.git
 	branch = linear-viv
+
+[submodule "lean-gym"]
+	path = lean-gym
+	url = https://gitlab.com/Vivace_m/lean-gym.git
+	branch = master
