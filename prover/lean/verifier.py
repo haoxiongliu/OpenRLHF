@@ -473,9 +473,8 @@ class Lean4ServerProcess(mp.Process):
                     "hammer_count": hammer_count,
                 }
 
-
-
         except Exception as e:
+            logger.error(f"Exception in verifying the code: {e.__class__.__name__} {e}")
             verification_result = {
                 "pass": False,
                 "complete": False,
