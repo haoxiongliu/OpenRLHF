@@ -126,21 +126,18 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_request_ids = scheduler.submit_all_request(tasks)
         verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
-        # add time reward
-        if args.time_reward:
-            rewards = [result.get("time_reward", 0.0) for result in verification_results]
-        else:
-            rewards = [1.0 if result.get("complete", False) else 0.0 for result in verification_results]
 
         verify_times = [result.get("verify_time", 0.0) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         
+        rewards = []
         for i in range(n):
             if verification_results[i].get("complete", False):
-                rewards[i] = 1.0 - args.time_reward_ratio * min(verify_times[i]/args.time_reward_threshold, 1.0)
+                reward = 1.0 - args.time_reward_ratio * min(verify_times[i]/args.time_reward_threshold, 1.0)
             else:
-                rewards[i] = 0.0
+                reward = 0.0
+            rewards.append(reward)
 
         i = random.randint(0, n - 1)
         debug_dict = {
