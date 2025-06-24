@@ -81,7 +81,7 @@ async def compile_codes_with_server(queries, args):
     outputs_list = []
     for i in range(len(queries)):
         verification_result = {k: v[i] for k, v in results.items()}
-        verification_result["completes"] = verification_result["rewards"] > 0
+        verification_result["complete"] = verification_result["rewards"] > 0
         # Map server response to compile_codes format
         # verification_result = {
         #     "complete": reward > 0,  # Same logic as lean_reward_server
