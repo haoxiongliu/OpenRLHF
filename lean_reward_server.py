@@ -88,7 +88,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         codes = []
         mode = "completion"
         for query in reward_request.queries:
-            if query.count("```lean4") != 1 or "<think>" in query or "<im_end>" in query:
+            if query.count("```lean4") > 1 or "<think>" in query or "<im_end>" in query:
                 mode = "chat"
                 break
 
