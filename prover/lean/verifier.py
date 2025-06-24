@@ -276,11 +276,11 @@ class Lean4ServerProcess(mp.Process):
         step_timeout: Optional[float]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
     ):
-        if code is None:
+        if not code:
             return {
                 "pass": False,
                 "complete": False,
-                "system_messages": "No code found in the request"
+                "errors": "No code found in the request"
             }
         global hammer_count
         start_time = time.time()
