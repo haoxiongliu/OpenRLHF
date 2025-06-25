@@ -284,7 +284,6 @@ class Lean4ServerProcess(mp.Process):
             }
         global hammer_count
         start_time = time.time()
-        system_messages = ''
         hammer_count = 0  # Initialize hammer_count at the start
         try:
             complete = False
@@ -305,10 +304,8 @@ class Lean4ServerProcess(mp.Process):
                 verification_result = {
                     "sorries": result.get('sorries', []), 
                     "tactics": result.get('tactics', []),
-                    "errors": [m for m in result.get('messages', []) if m['severity'] == 'error'],
-                    "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
-                    "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
-                    "system_messages": system_messages,
+                    "errors": extract_errors(result),
+                    "messages": result.get('messages', []),
                     "system_errors": None,
                     "ast": ast_results,
                     "header": header,
@@ -317,8 +314,6 @@ class Lean4ServerProcess(mp.Process):
                 }
                 verification_result['pass'] = not verification_result['errors']
                 verification_result['complete'] = complete
-                # verification_result['complete'] = any("Goals accomplished" in w['data'] for w in verification_result['infos'])
-                # complete = verification_result['complete']
 
             if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
@@ -403,33 +398,32 @@ class Lean4ServerProcess(mp.Process):
 
                     if block.state == BlockState.WAIT_SORRY or (block.level == 0 and result.get('proofStatus', None) != 'Completed'):
                         # two candidates: try at current proofState and try at sttm_ps, finally return to init_ps
-                        ps_cands = sorted(set([ps, sttm_ps]))
+                        ps_cands = sorted(set([ps, sttm_ps]), reverse=True)
                         cand_combs = list(itertools.product(ps_cands, hammers))
                         for cand_i, (ps_cand, hammer) in enumerate(cand_combs):
                             cmd = to_command(hammer, proofState=ps_cand, sorries=sorry_mode)
                             result = self._send_command_to_repl(cmd, timeout=step_timeout)
                             hammer_count += 1
                             errors = extract_errors(result)
-                            if errors:
-                                if cand_i == len(cand_combs) - 1:
-                                    block.state = BlockState.SORRY_FAILED
-                                    ps = init_ps # set to the state before this block
-                                continue
-                            ps_new = result['proofState']
-                            ps2goals[ps_new] = result['goals']
-                            if len(ps2goals[ps_new]) == len(init_goals):
-                                ps = ps_new
-                                if ps_cand == sttm_ps:
-                                    sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
-                                else:
-                                    expected_indent = n_indent(block.parts[1].content)
-                                    sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*expected_indent + hammer)
-                                    
-                                block._proofaug_parts = [sttm_snippet]
-                                block.state = BlockState.PASSED
-                                proofaug_index[block.index] = hammer
-                                
-                                break
+                            if not errors:
+                                ps_new = result['proofState']
+                                ps2goals[ps_new] = result['goals']
+                                if len(ps2goals[ps_new]) == len(init_goals):
+                                    ps = ps_new
+                                    if ps_cand == sttm_ps:
+                                        sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
+                                    else:
+                                        expected_indent = n_indent(block.parts[1].content)
+                                        sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*expected_indent + hammer)
+                                        
+                                    block._proofaug_parts = [sttm_snippet]
+                                    block.state = BlockState.PASSED
+                                    proofaug_index[block.index] = hammer
+                                    break
+
+                            if cand_i == len(cand_combs) - 1:
+                                block.state = BlockState.SORRY_FAILED
+                                ps = init_ps # set to the state before this block
 
                     else:
                         block.state = BlockState.PASSED
@@ -439,7 +433,7 @@ class Lean4ServerProcess(mp.Process):
                         result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
                         errors = extract_errors(result_verify)
                         if errors:
-                            logger.warning(f"Error in verifying the reconstructed proof {block.proofaug_content=}:\n{errors=}\nProbably bug of repl")
+                            logger.warning(f"Error in verifying the reconstructed proof {block.proofaug_content=}:{errors=}, probably bug of repl")
                         else:
                             if not is_complete(result_verify):
                                 logger.warning(f"Reconstructed proof {block.proofaug_content=} is not complete")
@@ -480,7 +474,6 @@ class Lean4ServerProcess(mp.Process):
                 "complete": False,
                 "errors": f"exception in verifying {code=}: {e.__class__.__name__} {e}",
                 "system_errors": traceback.format_exc(),
-                "system_messages": system_messages
             }
             self._clean_init_repl()
             

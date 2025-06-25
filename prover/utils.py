@@ -565,7 +565,7 @@ def has_unrecoverable_error(messages: list[str]) -> bool:
 
 def extract_errors(result: dict) -> list[str]:
     """handle ['messages'][0]['severity] format and ['message] format of repl,
-    only extract the error message.
+    only extract the error message. DOES NOT HANDLE OPEN GOALS REMAIN.
     {"sorries":
     [{"proofState": 1,
     "pos": {"line": 3, "column": 31},
@@ -581,7 +581,7 @@ def extract_errors(result: dict) -> list[str]:
     "unsolved goals\ny : ℝ\nh₀ : 0 ≤ 19 + 3 * y\nh₁ : √(19 + 3 * y) = 7\nh₁' : 0 ≤ 19 + 3 * y\n⊢ y = 10"}],
     "env": 2}    
     
-    {'message': 'Lean error:\n<input>:1:1: unknown tactic'}
+    {'message': 'Lean error:\n<input>:1:1: unknown tactic'} 
     """
     errors = []
     if "message" in result:
@@ -591,7 +591,7 @@ def extract_errors(result: dict) -> list[str]:
             errors.append(message)
     elif "messages" in result:
         for message in result["messages"]:
-            if message["severity"] == "error":
+            if message["severity"] == "error" and "unsolved goals" not in message["data"]:
                 errors.append(message["data"])
     return errors
 
