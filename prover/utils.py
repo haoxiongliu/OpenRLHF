@@ -116,7 +116,7 @@ def load_jsonl_objects(input_path):
 
 
 def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Optional[str]:
-    if omit_think:
+    if omit_think and strict:
         # find the first <think> and last </think> (if no last </think>, remove all content)
         think_start = text.find('<think>')
         think_end = text.rfind('</think>')
