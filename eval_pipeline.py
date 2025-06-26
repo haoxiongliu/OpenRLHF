@@ -20,7 +20,7 @@ import requests  # Add for HTTP requests to lean_reward_server
 
 # legacy
 async def compile_codes(
-    codes, cpu, memory_limit, step_timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False, args=None
+    args, codes, cpu, memory_limit, step_timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False
 ):
     lean4_scheduler = Lean4ServerScheduler(
         max_concurrent_requests=cpu, timeout=step_timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
@@ -255,7 +255,7 @@ def main(args):
             # TODO: find how can we use the LLM class for chat
             # it seems that model.chat is OK but we need to finish the above
             sampling_params = SamplingParams(temperature=args.temperature, max_tokens=max_tokens, top_p=args.top_p, n=args.n)
-            model = LLM(model=args.model_path, seed=1, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=max_model_len, gpu_memory_utilization=args.gpu_memory_utilization)
+            model = LLM(model=args.model_path, seed=args.seed, trust_remote_code=True, swap_space=8, tensor_parallel_size=args.gpu, max_model_len=max_model_len, gpu_memory_utilization=args.gpu_memory_utilization)
             # responses = model.chat(messages_list, sampling_params, use_tqdm=True)
             # model_outputs = [[response.choices[i].message.content for i in range(args.n)] for response in responses]
             vllm_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
@@ -306,8 +306,8 @@ def main(args):
     else:
         # Use local compilation method
         outputs_list = asyncio.run(compile_codes(
-            codes, args.cpu, args.memory_limit, args.step_timeout, args.ast, args.tactics, 
-            args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig, args))
+            args, codes, args.cpu, args.memory_limit, args.step_timeout, args.ast, args.tactics, 
+            args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig))
     
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
