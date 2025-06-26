@@ -273,7 +273,7 @@ def main(args):
             prefix = prefixes[i]
             full_codes = []
             for output in model_outputs[i]:
-                model_code = extract_code(extract_prefix + output)
+                model_code = extract_code(extract_prefix + output, strict=args.strict_extract)
                 if model_code is None:
                     full_code = None
                 else:
@@ -367,7 +367,7 @@ if __name__ == "__main__":
     parser.add_argument('--step_timeout', default=180, type=int, help="step timeout for the lean server")
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
-    parser.add_argument('--log_file', default="logs/summary.log", type=str)
+    parser.add_argument('--log_file', default="results/summary.log", type=str)
     parser.add_argument('--use_existing_code', type=str, default=None)
     parser.add_argument('--ast', action='store_true', default=False)
     parser.add_argument('--tactics', action='store_true', default=False)
@@ -386,6 +386,8 @@ if __name__ == "__main__":
     parser.add_argument('--use_lean_server', action='store_true', default=False)
     parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
     parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')
+    parser.add_argument('--strict_extract', action='store_true', default=False)
+
 
     args = parser.parse_args()
     print(args)

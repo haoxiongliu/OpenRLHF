@@ -129,7 +129,10 @@ def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Op
         else:
             text = text[:think_start] + text[think_end+len('</think>'):]
     code = None
-    pattern = r'```lean4?\n(.*?)\n```'
+    if strict:
+        pattern = r'```lean4?\n(.*?)\n```'
+    else:
+        pattern = r'```\S*?\n(.*?)\n```'
     last_match = None
     for match in re.finditer(pattern, text, re.DOTALL):
         last_match = match # Keep updating last_match with the latest match found
