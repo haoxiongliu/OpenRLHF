@@ -114,9 +114,25 @@ def load_jsonl_objects(input_path):
             objects.append(json.loads(line))
     return objects
 
+def write_as_jsonl(items: list[dict] | dict, filepath, mode='x', comple_nl=False, verbose=False):
+    # in r+ mode, after read, the write will always start at the end 
+    if dirpath:=os.path.dirname(filepath):
+        os.makedirs(dirpath, exist_ok=True)
+    if 'a' in mode and comple_nl:
+        with open(filepath, 'r+') as f:
+            if f.read()[-1] != '\n':
+                f.write('\n')
+    if isinstance(items, dict):
+        items = [items]
+    with open(filepath, mode) as f:
+        for item in items:
+            f.write(json.dumps(item)+'\n')
+    if verbose:
+        print(f'{len(items)} items saved to {filepath}')
+
 
 def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Optional[str]:
-    if omit_think and strict:
+    if omit_think:
         # find the first <think> and last </think> (if no last </think>, remove all content)
         think_start = text.find('<think>')
         think_end = text.rfind('</think>')

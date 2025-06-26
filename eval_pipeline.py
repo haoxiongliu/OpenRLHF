@@ -122,7 +122,8 @@ def main(args):
             for line in file:
                 data = json.loads(line)
                 name = data["problem_id"] if "problem_id" in data else data["name"]
-                to_inference_codes += [{"name": name, "code": code} for code in data["full_code"]]
+                full_codes = [code if code else "" for code in data["full_code"]]
+                to_inference_codes += [{"name": name, "code": code} for code in full_codes]
     elif os.path.exists(full_records_path):
         print(f"Loading existing records from {full_records_path}")
         to_inference_codes = []
