@@ -20,7 +20,7 @@ def bar(x=0):
     """Example command bar that prints x."""
     print(f"bar called with x={x}")
 
-def start_command_generator(host="0.0.0.0", port=8123, reload=False):
+def start_generator(host="0.0.0.0", port=8123, reload=False):
     """Start the Lean Command Generator web service with REPL backend."""
     print(f"Starting Lean Command Generator web service...")
     print(f"Server will be available at: http://{host}:{port}")
@@ -39,7 +39,7 @@ commands = {
     'bar': bar,
     'compare_compilation_summaries': compare_compilation_summaries,
     'get_cumulative_pass': get_cumulative_pass,
-    'start_command_generator': start_command_generator,
+    'start_generator': start_generator,
 }
 
 def main():

@@ -189,6 +189,15 @@ class Lean4ServerProcess(mp.Process):
         try:
             if timeout is None:
                 timeout = self.timeout
+            
+            # load last command buffer
+            while True:
+                ready, _, _ = select.select([self.master_fd], [], [], 0.0)
+                if not ready:
+                    break
+                last_chunk = os.read(self.master_fd, 4096)  # Discard any buffered data
+                logger.warning(f"Non-read buffer data: {last_chunk}")
+            
             # Send with protocol delimiter
             os.write(self.master_fd, (json.dumps(command) + "\n\n").encode())
             self.recent_commands.append(command)
@@ -196,13 +205,7 @@ class Lean4ServerProcess(mp.Process):
             start_time = time.time()
             max_size = 10 * 1024 * 1024  # 10MB safety limit
 
-            while True:
-                ready, _, _ = select.select([self.master_fd], [], [], 0.0)
-                if not ready:
-                    break
-                last_chunk = os.read(self.master_fd, 4096)  # Discard any buffered data
-                logger.warning(f"Non-read buffer data: {last_chunk}")
-                
+
             while True:
                 remaining = max(0.1, timeout - (time.time() - start_time))
                 ready, _, _ = select.select([self.master_fd], [], [], remaining)
@@ -327,7 +330,7 @@ class Lean4ServerProcess(mp.Process):
                     else:
                         hammers = [HINT_DICT[ht] for ht in hammer_list]
                 hammers = [h for h in hammers if h is not None]
-                
+
                 header, body = split_header_body(code, remove_comments=True)
                 if header is not None:
                     init_env = self._initialize_header_env(header)  # can be None
