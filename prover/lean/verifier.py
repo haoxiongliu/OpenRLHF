@@ -318,12 +318,16 @@ class Lean4ServerProcess(mp.Process):
             if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
                 if not hammer_list:
+                    if not hammer_type:
+                        logger.warning(f"No hammer_list and hammer_type provided, make sure this is intended")
                     hammers = [HINT_DICT[hammer_type]]
                 else:
                     if isinstance(hammer_list, str):
                         hammers = [HINT_DICT[hammer_list]]
                     else:
                         hammers = [HINT_DICT[ht] for ht in hammer_list]
+                hammers = [h for h in hammers if h is not None]
+                
                 header, body = split_header_body(code, remove_comments=True)
                 if header is not None:
                     init_env = self._initialize_header_env(header)  # can be None

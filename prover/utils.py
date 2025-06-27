@@ -47,6 +47,8 @@ HINT_DICT = {
     "leanhammer_3": r"hammer {aesopPremises := 3, autoPremises := 3}",
     "leanhammer_4": r"hammer {aesopPremises := 4, autoPremises := 4}",
     "leanhammer_5": r"hammer {aesopPremises := 5, autoPremises := 5}",
+    None: None,
+    "": None
 }
 
 
