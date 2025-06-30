@@ -66,6 +66,7 @@ async def compile_codes_with_server(queries, args):
         "hammer_list": args.hammer_list,
         "require_reconstruct": args.require_reconstruct,
         "step_timeout": args.step_timeout,
+        "non_repl": args.non_repl,
     }
     
     
@@ -387,6 +388,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_lean_server', action='store_true', default=False)
     parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
     parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')
+    parser.add_argument('--non_repl', action='store_true', default=False)
     parser.add_argument('--strict_extract', action='store_true', default=False)
 
 

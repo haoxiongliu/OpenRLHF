@@ -34,7 +34,8 @@ class RewardRequest(BaseModel):
     step_timeout: Optional[int] = None
     require_reconstruct: bool = False
     pa_with_orig: bool = False
-        
+    non_repl: bool = False
+
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
     lake_path = args.lake_path or DEFAULT_LAKE_PATH
@@ -123,6 +124,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "require_reconstruct": reward_request.require_reconstruct,
             "step_timeout": reward_request.step_timeout,
             "pa_with_orig": reward_request.pa_with_orig,
+            "non_repl": reward_request.non_repl,
         } for code in codes]
         
         verification_request_ids = scheduler.submit_all_request(tasks)

@@ -260,6 +260,7 @@ class Lean4ServerProcess(mp.Process):
             self._clean_init_repl()
             ret_obj = {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
         
+        ret_obj['command'] = command
         return ret_obj
     
 
@@ -278,6 +279,7 @@ class Lean4ServerProcess(mp.Process):
         require_reconstruct: bool=False,
         step_timeout: Optional[float]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
+        non_repl: bool=False,
     ):
         if not code:
             return {
@@ -285,11 +287,17 @@ class Lean4ServerProcess(mp.Process):
                 "complete": False,
                 "errors": "No code found in the request"
             }
+        assert not non_repl or not proofaug, "non_repl and proofaug cannot be both True"
+
         global hammer_count
         start_time = time.time()
         hammer_count = 0  # Initialize hammer_count at the start
         try:
             complete = False
+            
+            if non_repl:
+                raise NotImplementedError("non_repl is not implemented")
+            
             if (not proofaug) or pa_with_orig:
                 header, body = split_header_body(code)
                 command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
