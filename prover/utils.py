@@ -16,6 +16,7 @@ from datasets import load_dataset, Dataset
 import glob
 import csv
 from typing import Optional
+from prover.constants import HINT_DICT, RECIPE2HAMMER_LIST
 
 DEF_SIGN=":="
 HOME_DIR = os.path.expanduser('~')
@@ -25,31 +26,6 @@ DEFAULT_REPL_PATH = f'{PROJ_DIR}/repl/.lake/build/bin/repl'
 DEFAULT_LEAN_WORKSPACE = f'{PROJ_DIR}/mathlib4/'
 LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
-HINT_DICT = {
-    'smt': r"smt",
-    'hint': r"hint",
-    'my_hint': r"try norm_num [*]; try field_simp [*] at *; try ring_nf at *; try nlinarith",
-    "my_hint_v0.1": r"try field_simp [*] at *; try norm_num [*]; try nlinarith",
-    'aesop': r"aesop",
-    'aesop_v0.1': r"try aesop; try norm_num [*]",
-    'omega': r"omega",
-    'nlinarith': r"nlinarith",
-    "linarith": r"linarith",
-    'ring_nf': r"ring_nf",
-    'simp_all': r"simp_all",
-    "norm_num": r"norm_num",
-    "field_simp": r"field_simp [*] at *",
-    "bound": r"bound",
-    "leanhammer": r"hammer",
-    "leanhammer_0": r"hammer {aesopPremises := 0, autoPremises := 0}",
-    "leanhammer_1": r"hammer {aesopPremises := 1, autoPremises := 1}",
-    "leanhammer_2": r"hammer {aesopPremises := 2, autoPremises := 2}",
-    "leanhammer_3": r"hammer {aesopPremises := 3, autoPremises := 3}",
-    "leanhammer_4": r"hammer {aesopPremises := 4, autoPremises := 4}",
-    "leanhammer_5": r"hammer {aesopPremises := 5, autoPremises := 5}",
-    None: None,
-    "": None
-}
 
 
 def non_cot_prompt(data):
@@ -569,18 +545,15 @@ def to_command(code, env=None, mode="cmd", proofState=None, sorries=None, verbos
     return cmd
 
 
-def is_error_message(message: str) -> bool:
-    """
-    Check if the message is an error message.
-    """
-    return "error" in message.lower()
-
 def has_unrecoverable_error(messages: list[str]) -> bool:
     """
     Check if the messages contain any unrecoverable errors.
     """
     return any(re.search(r"[tT]imeout", message) for message in messages)
 
+
+# The following functions are used to check the proof status.
+# for "linear" branch of repl, v4.19.0.
 
 def extract_errors(result: dict) -> list[str]:
     """handle ['messages'][0]['severity] format and ['message] format of repl,
@@ -613,6 +586,20 @@ def extract_errors(result: dict) -> list[str]:
             if message["severity"] == "error" and "unsolved goals" not in message["data"]:
                 errors.append(message["data"])
     return errors
+
+def is_incomplete(result: dict) -> bool:
+    """
+    Check if the proof is incomplete according to the repl result.
+    """
+    flag = False
+    if 'Incomplete: open goals remain' in result.get('message', ''):
+        flag = True
+    elif "messages" in result:
+        for message in result["messages"]:
+            if message["severity"] == "error" and "unsolved goals" in message["data"]:
+                flag = True
+    return flag
+
 
 
 def is_complete(result: dict) -> bool:

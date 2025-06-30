@@ -22,7 +22,8 @@ from collections import deque
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
 from prover.logger import logger
-from prover.utils import remove_lean_comments, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, HINT_DICT, n_indent, is_error_message, extract_errors, is_complete
+from prover.constants import HINT_DICT
+from prover.utils import DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, n_indent, extract_errors, is_complete
 from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
 
 
@@ -310,7 +311,6 @@ class Lean4ServerProcess(mp.Process):
                 
                 result = self._send_command_to_repl(command, timeout=step_timeout)
                 
-                ast_results = lean4_parser(code, result['ast']) if 'ast' in result and result['ast'] else {}
                 complete = is_complete(result)
                 verification_result = {
                     "sorries": result.get('sorries', []), 
@@ -318,13 +318,12 @@ class Lean4ServerProcess(mp.Process):
                     "errors": extract_errors(result),
                     "messages": result.get('messages', []),
                     "system_errors": None,
-                    "ast": ast_results,
+                    "ast": lean4_parser(code, result['ast']) if 'ast' in result else {},
                     "header": header,
-                    "body": body
+                    "body": body,
+                    "complete": complete,
                     # "verified_code": code,  # Keep original code for reference
                 }
-                verification_result['pass'] = not verification_result['errors']
-                verification_result['complete'] = complete
 
             if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
@@ -365,18 +364,28 @@ class Lean4ServerProcess(mp.Process):
                     else:
                         cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd, timeout=step_timeout)
-                    errors = extract_errors(result)
 
-                    if errors:
+                    if extract_errors(result):
                         block.state = BlockState.STTM_FAILED
                         return init_ps, result
+                    
+                    if is_complete(result):
+                        block.state = BlockState.COMPLETED
+                        return init_ps, result
+
                     if ps is None:
+                        # corner case: no block, only one 'statement' in PSA.
+                        if 'sorries' not in result:
+                            block.state = BlockState.STTM_FAILED
+                            return init_ps, result
                         ps = result['sorries'][0]['proofState']
                         ps2goals[ps] = result['sorries'][0]['goals']
                     else:
                         ps = result['proofState']
                         ps2goals[ps] = result['goals']
+                    
                     sttm_ps = ps  # the sorry state. 
+                    block.state = BlockState.WAIT_SORRY
 
                     # handle the rest of the block
                     rest_parts = block.parts[1:] if len(block.parts) > 1 else []
@@ -389,23 +398,30 @@ class Lean4ServerProcess(mp.Process):
                             else:
                                 cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                                 result = self._send_command_to_repl(cmd, timeout=step_timeout)
-                                errors = extract_errors(result)
-                                if errors:
+                                if extract_errors(result):
                                     block.state = BlockState.WAIT_SORRY
                                     break
                                 ps = result['proofState']
                                 ps2goals[ps] = result['goals']
                                 rest_part_index += 1
+                                if len(ps2goals[ps]) == len(init_goals):
+                                    block.state = BlockState.COMPLETED
+                                    break
 
                         elif isinstance(part, Block):
                             ps, result = verify_block(part, ps)
-                            if part.state in [BlockState.STTM_FAILED, BlockState.SORRY_FAILED]:
+                            if part.state != BlockState.COMPLETED:
                                 block.state = BlockState.WAIT_SORRY
                                 break
+                            # if part.state in [BlockState.STTM_FAILED, BlockState.SORRY_FAILED]:
+                            #     block.state = BlockState.WAIT_SORRY
+                            #     break
                             rest_part_index += 1
                     
                     # check whether the current block is completed by checking the number of goals
                     current_goals = ps2goals[ps]
+                    if len(current_goals) == len(init_goals):
+                        block.state = BlockState.COMPLETED
                     if len(current_goals) > len(init_goals):
                         block.state = BlockState.WAIT_SORRY
                     elif len(current_goals) < len(init_goals):
@@ -419,8 +435,7 @@ class Lean4ServerProcess(mp.Process):
                             cmd = to_command(hammer, proofState=ps_cand, sorries=sorry_mode)
                             result = self._send_command_to_repl(cmd, timeout=step_timeout)
                             hammer_count += 1
-                            errors = extract_errors(result)
-                            if not errors:
+                            if not extract_errors(result):
                                 ps_new = result['proofState']
                                 ps2goals[ps_new] = result['goals']
                                 if len(ps2goals[ps_new]) == len(init_goals):
@@ -440,14 +455,11 @@ class Lean4ServerProcess(mp.Process):
                                 block.state = BlockState.SORRY_FAILED
                                 ps = init_ps # set to the state before this block
 
-                    else:
-                        block.state = BlockState.PASSED
                     if block.level == 0 and result.get('proofStatus', None) == 'Completed':
                         block.state = BlockState.COMPLETED
                         verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
                         result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
-                        errors = extract_errors(result_verify)
-                        if errors:
+                        if not extract_errors(result_verify):
                             logger.warning(f"Error in verifying the reconstructed proof {block.proofaug_content=}:{errors=}, probably bug of repl")
                         else:
                             if not is_complete(result_verify):
@@ -475,7 +487,6 @@ class Lean4ServerProcess(mp.Process):
                     "header": header,
                     "body": block.proofaug_content,
                     "success_type": success_type,
-                    "pass": block.state in [BlockState.PASSED, BlockState.COMPLETED],
                     "proofaug_index": proofaug_index,
                     "proofaug_body": result.get('proofaug_body', None),
                     "last_result": result,

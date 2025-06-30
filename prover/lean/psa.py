@@ -194,8 +194,8 @@ class ProposalStructure(object):
                         block_stack.pop()
                     else:
                         break
-                last_block = block_stack[-1]
-                block = Block(parent=last_block)
+                parent_block = block_stack[-1]
+                block = Block(parent=parent_block)
                 # block._receive_snippet(Snippet(lines[i]))
                 sttm_content = line
                 while True:
@@ -209,7 +209,7 @@ class ProposalStructure(object):
                         if not lines[i].strip().startswith('|'):
                             break
                     sttm_content += "\n" + lines[i]
-                last_block._receive_block(block)
+                parent_block._receive_block(block)
                 block_stack.append(block)
                 block._receive_snippet(Snippet(sttm_content))
 

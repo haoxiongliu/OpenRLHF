@@ -7,7 +7,7 @@ import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH, DEFAULT_REPL_PATH, DEF_SIGN
+from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH, DEFAULT_REPL_PATH, DEF_SIGN, RECIPE2HAMMER_LIST
 from prover.logger import logger
 import random
 import torch
@@ -57,13 +57,19 @@ async def compile_codes_with_server(queries, args):
     Use lean_reward_server for code compilation via HTTP requests
     """
     server_url = f"http://{args.lean_server_host}:{args.lean_server_port}"
-    
+    # determine the hammer_list
+    if args.hammer_recipe:
+        hammer_list = RECIPE2HAMMER_LIST[args.hammer_recipe]
+        if args.hammer_list:
+            logger.warning(f"hammer_list is ignored when hammer_recipe is provided")
+    else:
+        hammer_list = args.hammer_list
     # Prepare request data in the format expected by lean_reward_server
     request_data = {
         "queries": queries,  # Send codes as queries in completion mode
         "proofaug": args.proofaug,
         "pa_with_orig": args.pa_with_orig,
-        "hammer_list": args.hammer_list,
+        "hammer_list": hammer_list,
         "require_reconstruct": args.require_reconstruct,
         "step_timeout": args.step_timeout,
         "non_repl": args.non_repl,
@@ -377,6 +383,7 @@ if __name__ == "__main__":
     parser.add_argument('--nouse_pty', dest='use_pty', action='store_false', default=False)
     parser.add_argument('--hammer_type', type=str, default=None, help="see hint_dict in utils.py for available options")
     parser.add_argument('--hammer_list', nargs='+', default=None)
+    parser.add_argument('--hammer_recipe', type=str, default=None)
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pa_with_orig', action='store_true', default=False)
     parser.add_argument('--require_reconstruct', action='store_true', default=False)

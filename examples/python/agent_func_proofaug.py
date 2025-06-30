@@ -4,6 +4,7 @@ Not actually an agent. only 1-step, it is just for API compatibility."""
 from typing import Any, Dict
 import aiohttp
 import re
+from prover.constants import RECIPE2HAMMER_LIST
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
@@ -29,7 +30,8 @@ async def call_remote_reward_model(
             "proofaug": proofaug,
             "hammer_list": hammer_list,
             "require_reconstruct": True,
-            "step_timeout": step_timeout
+            "step_timeout": step_timeout,
+            "pa_with_orig": True,
         }
         async with aiohttp.client.ClientSession() as session:
             async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=remote_timeout) as response:
