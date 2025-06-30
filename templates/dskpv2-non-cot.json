@@ -1,0 +1,6 @@
+{
+    "description": "The prompt template used in deepseek-ai/DeepSeek-Prover-V2-7B huggingface repo. The assistant field indicates the response of DeepSeek-Prover-V2-7B. Required fields: problem, header, formal_statement, informal_statement.",
+    "user": "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}  sorry\n```",
+    "assistant": "{thinking}```lean4\n{code}\n```",
+    "stop": []
+}
