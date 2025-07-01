@@ -96,6 +96,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
         # Load ProofAug configuration from YAML file
         with open(self.proofaug_config_path, 'r') as f:
             proofaug_config = yaml.safe_load(f)
+        print(f"proofaug_config: {proofaug_config}")
 
         # Create semaphore to control concurrent task execution
         NUM_TASKS = int(os.environ.get("OPENRLHF_ASYNC_NUM_TASKS", 128))
