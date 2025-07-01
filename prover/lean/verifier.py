@@ -257,13 +257,12 @@ class Lean4ServerProcess(mp.Process):
             except Exception as e:
                 ret_obj = {"messages": [{"data": "response handling error: " + e.__class__.__name__ + str(e), "severity": "error"}]}
             
+            ret_obj['command'] = command
+            return ret_obj
+        
         except Exception as e:
             self._clean_init_repl()
-            ret_obj = {"messages": [{"data": e.__class__.__name__ + str(e), "severity": "error"}]}
-        
-        ret_obj['command'] = command
-        return ret_obj
-    
+            raise ValueError(f"repl restarted during sending command {command=} due to unhandled error: {e.__class__.__name__} {e}")
 
 
     def _verify_lean4_with_persistent_repl(
@@ -378,7 +377,9 @@ class Lean4ServerProcess(mp.Process):
                             code += ' sorry'
                         cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd, timeout=step_timeout)
-                        # if it is not end with by and no sorry added
+                        # 3 cases for sttm not ending with by:
+                        # 1. result error: just return the init_ps and result
+                        # 2. result incomplete: very simiilar. 
                         if extract_errors(result):
                             block.state = BlockState.STTM_FAILED
                             return init_ps, result
@@ -434,8 +435,10 @@ class Lean4ServerProcess(mp.Process):
                                     if ps_cand == sttm_ps:
                                         sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
                                     else:
-                                        expected_indent = n_indent(block.parts[1].content)
-                                        sttm_snippet = Snippet("\n".join([item.proofaug_content for item in block.parts[:rest_part_index+1]]) + '\n' + ' '*expected_indent + hammer)
+                                        # just set it to 2. in RL we discourage other indents.
+                                        expected_indent = n_indent(block.parts[0].content) + 2
+                                        partial_content = "\n".join([part.proofaug_content for part in block.parts[:rest_part_index+1]])
+                                        sttm_snippet = Snippet(partial_content + '\n' + ' '*expected_indent + hammer)
                                         
                                     block._proofaug_parts = [sttm_snippet]
                                     block.state = BlockState.COMPLETED
