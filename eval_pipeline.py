@@ -307,7 +307,7 @@ def main(args):
         hammer_list = args.hammer_list
     elif args.hammer_type:
         hammer_list = [args.hammer_type]
-    args.hammer_list = hammer_list
+    args.hammer_list = hammer_list if hammer_list else None
 
 
     if args.use_lean_server:
