@@ -67,13 +67,13 @@ from enum import StrEnum
 
 
 class BlockState(StrEnum):
-    UNVERIFIED = 'unverified'
+    UNVERIFIED = 'unverified' # initial state
     WAIT_SORRY = 'wait_sorry'
     SORRY_FAILED = 'sorry_failed'
-    PASSED = 'compilation_passed'
+    PASSED = 'compilation_passed' # almost legacy
     STTM_FAILED = 'sttm_failed'
-    COMPLETED = 'completed'
-    NO_RECONSTRUCT = 'no_reconstruct'
+    COMPLETED = 'completed' # indicate whole theorem complete or block complete
+    NO_RECONSTRUCT = 'no_reconstruct' # only when require_reconstruct is True
 
 class Snippet(object):
     """A snippet corresponding to a tactic or ends with := by. 

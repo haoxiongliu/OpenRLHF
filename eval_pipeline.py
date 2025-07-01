@@ -57,19 +57,12 @@ async def compile_codes_with_server(queries, args):
     Use lean_reward_server for code compilation via HTTP requests
     """
     server_url = f"http://{args.lean_server_host}:{args.lean_server_port}"
-    # determine the hammer_list
-    if args.hammer_recipe:
-        hammer_list = RECIPE2HAMMER_LIST[args.hammer_recipe]
-        if args.hammer_list:
-            logger.warning(f"hammer_list is ignored when hammer_recipe is provided")
-    else:
-        hammer_list = args.hammer_list
     # Prepare request data in the format expected by lean_reward_server
     request_data = {
         "queries": queries,  # Send codes as queries in completion mode
         "proofaug": args.proofaug,
         "pa_with_orig": args.pa_with_orig,
-        "hammer_list": hammer_list,
+        "hammer_list": args.hammer_list,
         "require_reconstruct": args.require_reconstruct,
         "step_timeout": args.step_timeout,
         "non_repl": args.non_repl,
@@ -304,7 +297,19 @@ def main(args):
     codes = [code["code"] for code in to_inference_codes]
     
     print(f"Compiling {len(codes)} codes")
-    
+
+    # determine the hammer_list
+    if args.hammer_recipe:
+        hammer_list = RECIPE2HAMMER_LIST[args.hammer_recipe]
+        if args.hammer_list:
+            logger.warning(f"hammer_list is ignored when hammer_recipe is provided")
+    elif args.hammer_list:
+        hammer_list = args.hammer_list
+    elif args.hammer_type:
+        hammer_list = [args.hammer_type]
+    args.hammer_list = hammer_list
+
+
     if args.use_lean_server:
         # Use lean_reward_server for compilation
         # TODO: directly pass the complete input+output to the server
