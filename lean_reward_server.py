@@ -31,6 +31,7 @@ class RewardRequest(BaseModel):
     labels: Optional[List[str]] = None
     proofaug: bool = False
     hammer_list: Optional[List[str]|str] = None
+    hammer_recipe: Optional[str] = None
     step_timeout: Optional[int] = None
     require_reconstruct: bool = False
     pa_with_orig: bool = False
@@ -121,6 +122,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "code": code,
             "proofaug": reward_request.proofaug,
             "hammer_list": reward_request.hammer_list,
+            "hammer_recipe": reward_request.hammer_recipe,
             "require_reconstruct": reward_request.require_reconstruct,
             "step_timeout": reward_request.step_timeout,
             "pa_with_orig": reward_request.pa_with_orig,

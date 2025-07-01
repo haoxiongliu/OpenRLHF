@@ -24,6 +24,7 @@ from prover.workers import ProcessScheduler
 from prover.logger import logger
 from prover.constants import HINT_DICT
 from prover.utils import DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, n_indent, extract_errors, is_complete
+from prover.constants import RECIPE2HAMMER_LIST
 from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
 
 
@@ -276,6 +277,7 @@ class Lean4ServerProcess(mp.Process):
         pa_with_orig: bool=False,
         hammer_type: Optional[str]=None,    # legacy
         hammer_list: Optional[list[str] | str]=None,
+        hammer_recipe: Optional[str]=None,
         require_reconstruct: bool=False,
         step_timeout: Optional[float]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
@@ -325,6 +327,10 @@ class Lean4ServerProcess(mp.Process):
 
             if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
+
+                if hammer_recipe:
+                    hammer_list = RECIPE2HAMMER_LIST[hammer_recipe]
+
                 if not hammer_list:
                     if not hammer_type:
                         logger.warning(f"No hammer_list and hammer_type provided, make sure this is intended")

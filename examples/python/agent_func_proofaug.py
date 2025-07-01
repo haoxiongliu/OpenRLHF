@@ -10,7 +10,7 @@ REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模
 
 async def call_remote_reward_model(
         queries, prompts, labels,
-        proofaug=False, hammer_list="aesop",
+        proofaug=False, hammer_list=None, hammer_recipe=None,
         remote_timeout=60, step_timeout=None,
         **kwargs):
     """async call remote reward model.
@@ -29,6 +29,7 @@ async def call_remote_reward_model(
             "labels": labels,
             "proofaug": proofaug,
             "hammer_list": hammer_list,
+            "hammer_recipe": hammer_recipe,
             "require_reconstruct": True,
             "step_timeout": step_timeout,
             "pa_with_orig": True,

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import yaml
 
 import ray
 import torch
@@ -34,7 +35,8 @@ def get_tokenize_text_len(text, tokenizer):
 class LLMRayActorAsync(BaseLLMRayActor):
     async def __init__(self, *args, bundle_indices: list = None, **kwargs):
         self.agent_func_path = kwargs.pop("agent_func_path")
-
+        self.proofaug_config_path = kwargs.pop("proofaug_config_path", "configs/default.yaml")
+        print(f"proofaug_config_path: {self.proofaug_config_path}")
         # Initialize super class
         super().__init__(*args, bundle_indices=bundle_indices, **kwargs)
 
@@ -77,9 +79,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
 
     async def add_requests(self, 
             sampling_params, prompts, labels, 
-            max_length, hf_tokenizer=None, max_steps=10000, 
-            proofaug=False, proofaug_ans_subst=False, hammer_list=None,
-            remote_timeout=None, step_timeout=None
+            max_length, hf_tokenizer=None, max_steps=10000
         ):
         """
         Process requests from rank0 and generate responses with multiple agent interactions.
@@ -92,6 +92,10 @@ class LLMRayActorAsync(BaseLLMRayActor):
             labels: List of labels corresponding to prompts
             max_steps: Maximum number of interaction steps
         """
+
+        # Load ProofAug configuration from YAML file
+        with open(self.proofaug_config_path, 'r') as f:
+            proofaug_config = yaml.safe_load(f)
 
         # Create semaphore to control concurrent task execution
         NUM_TASKS = int(os.environ.get("OPENRLHF_ASYNC_NUM_TASKS", 128))
@@ -130,13 +134,14 @@ class LLMRayActorAsync(BaseLLMRayActor):
 
                     # Call step function to get reward and next observation
                     # Use asyncio.to_thread to make Ray remote call non-blocking
-                    # TODO: add kwargs config by a yaml file
+                    # Load kwargs config from YAML file
                     kwargs = {"sampling_params": sampling_params,
-                              "proofaug": proofaug,
-                              "proofaug_ans_subst": proofaug_ans_subst,
-                              "hammer_list": hammer_list,
-                              "remote_timeout": remote_timeout,
-                              "step_timeout": step_timeout}
+                              "proofaug": proofaug_config.get("proofaug", False),
+                              "proofaug_ans_subst": proofaug_config.get("proofaug_ans_subst", False),
+                              "hammer_recipe": proofaug_config.get("hammer_recipe", None),
+                              "hammer_list": proofaug_config.get("hammer_list", None),
+                              "remote_timeout": proofaug_config.get("remote_timeout", 60),
+                              "step_timeout": proofaug_config.get("step_timeout", 20)}
                     result = await agent_instance.step.remote(observation, action, label, **kwargs)
                     reward = result["rewards"]
                     if isinstance(reward, torch.Tensor):
