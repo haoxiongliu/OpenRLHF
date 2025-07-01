@@ -374,10 +374,11 @@ class Lean4ServerProcess(mp.Process):
                             ps2goals[ps] = result['sorries'][0]['goals']
 
                     else:
-                        assert code.strip().endswith('by'), f"sttm should end with 'by' in {block=}"
-                        code += ' sorry'
+                        if code.strip().endswith('by'):
+                            code += ' sorry'
                         cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                         result = self._send_command_to_repl(cmd, timeout=step_timeout)
+                        # if it is not end with by and no sorry added
                         if extract_errors(result):
                             block.state = BlockState.STTM_FAILED
                             return init_ps, result
@@ -393,7 +394,6 @@ class Lean4ServerProcess(mp.Process):
                     for part in rest_parts:
                         if isinstance(part, Snippet):
                             code = part.content
-                            assert part.category != 'statement', f"Statement occur in the rest parts of {block=}"
                             cmd = to_command(code, proofState=ps, sorries=sorry_mode)
                             result = self._send_command_to_repl(cmd, timeout=step_timeout)
                             if extract_errors(result):
@@ -417,6 +417,7 @@ class Lean4ServerProcess(mp.Process):
                     elif len(current_goals) > len(init_goals):
                         block.state = BlockState.WAIT_SORRY
 
+                    # proofaug
                     if block.state == BlockState.WAIT_SORRY or (block.level == 0 and result.get('proofStatus', None) != 'Completed'):
                         # two candidates: try at current proofState and try at sttm_ps, finally return to init_ps
                         ps_cands = sorted(set([ps, sttm_ps]), reverse=True)
@@ -445,6 +446,7 @@ class Lean4ServerProcess(mp.Process):
                                 block.state = BlockState.SORRY_FAILED
                                 ps = init_ps # set to the state before this block
 
+                    # verify the reconstructed proof
                     if result.get('proofStatus', None) == 'Completed':
                         assert block.level == 0, f"Completed in result is expected only in level=0 block"
                         block.state = BlockState.COMPLETED

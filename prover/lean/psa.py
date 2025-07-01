@@ -76,7 +76,7 @@ class BlockState(StrEnum):
     NO_RECONSTRUCT = 'no_reconstruct' # only when require_reconstruct is True
 
 class Snippet(object):
-    """A snippet corresponding to a tactic or ends with := by. 
+    """A snippet corresponding to a full tactic or ends with := by. 
     Always add a newline before adding a new snippet."""
     def __init__(self, content: str = ''):
         self.content = content
@@ -107,7 +107,7 @@ class Snippet(object):
         return f"-- Snippet(content=\n{self.content})"
 
 class Block(object):
-    """each block is a list of snippets and subblocks"""
+    """each block's parts is a list of snippets and subblocks"""
     def __init__(self, parent: Optional[Block]):
         self.parts = [] # type: list[Block|Snippet]
         self.parent = parent
@@ -148,14 +148,6 @@ class Block(object):
             self.parts[-1]._receive_snippet(snippet)
         else:
             self.parts.append(snippet)
-        # legacy code. remain here for reference
-        # if self.parts and isinstance(self.parts[-1], Snippet) and self.parts[-1].category == 'statement':
-        #     last_is_sttm = True
-        # else:
-        #     last_is_sttm = False
-        # if last_is_sttm or not self.parts or isinstance(self.parts[-1], Block):
-        #     self.parts.append(Snippet())
-        # self.parts[-1]._receive_snippet(snippet)
 
     def __repr__(self):
         return f"-- Block(level={self.level}, content=\n{self.content})"
@@ -172,69 +164,58 @@ class ProposalStructure(object):
     def _analyze(self, proposal: str):
         lines = proposal.split("\n")
         # determine the blocks by finding 'have' and ':=' and by the indentation
-        indent2level = {}
+        indent2level = {}   # init block level is -1
         block_stack = [Block(parent=None)] # type: list[Block]
         i = 0   # pointer
         while i < len(lines):
             line = lines[i]
             if line.strip() == '':
-                block_stack[-1]._receive_snippet(Snippet(), append=True)
+                block_stack[-1]._receive_snippet(Snippet(), append=True) # in fact add new line
                 i += 1
                 continue
             # we assume that the proof never opens a new goal by 'have' when the current same level block is not yet closed
             # determine the level and the current block
-            # TODO: reconstruct
-            indent = n_indent(line)
+            indent = n_indent(line) # indicate the block level.
             if indent not in indent2level:
                 indent2level[indent] = len(indent2level)
             level = indent2level[indent]
-            if statement_starts(line):
-                for j in range(len(block_stack) - 1, -1, -1):
-                    if block_stack[j].level >= level:
-                        block_stack.pop()
-                    else:
-                        break
-                parent_block = block_stack[-1]
+            while block_stack[-1].level >= level:
+                block_stack.pop()
+            parent_block = block_stack[-1]
+            if statement_starts(line):  # add a new block
+                # we know that block_stack[0] is level -1 and level>=0
                 block = Block(parent=parent_block)
-                # block._receive_snippet(Snippet(lines[i]))
                 sttm_content = line
-                while True:
+                while True: # exit condition is complex. using while True is easier.
                     i += 1
-                    if analyzable(sttm_content) or i >= len(lines) :
-                        # the second one corresponding to have xxx := h1.1
+                    # when we find := by, we stop
+                    if analyzable(sttm_content) or i >= len(lines):
                         break
+                    # sometimes there is no := by, we stop when <= indent occurs.
                     if n_indent(lines[i]) < indent:
                         break
                     elif n_indent(lines[i]) == indent:
                         if not lines[i].strip().startswith('|'):
                             break
                     sttm_content += "\n" + lines[i]
+                block._receive_snippet(Snippet(sttm_content))
                 parent_block._receive_block(block)
                 block_stack.append(block)
-                block._receive_snippet(Snippet(sttm_content))
-
             else:
-                for j in range(len(block_stack) - 1, level - 1, -1):
-                    if block_stack[j].level >= level:
-                        block_stack.pop()
-                    else:
-                        break    
-                block = block_stack[-1]
                 tactic_content = line
                 i += 1
-                while i < len(lines):
+                while i < len(lines):   # when indent > current_indent, we append to this tactic
                     if n_indent(lines[i]) < indent:
                         break
                     elif n_indent(lines[i]) == indent:
                         special_start_indicators = ['|', '<;>', ')']
                         special_end_indicators = ['|', '<;>', '(']
-                        
                         if not ( any(lines[i].strip().startswith(indicator) for indicator in special_start_indicators) \
                             or any(lines[i-1].strip().endswith(indicator) for indicator in special_end_indicators)):
                             break
                     tactic_content += "\n" + lines[i]
                     i += 1
-                block._receive_snippet(Snippet(tactic_content))
+                parent_block._receive_snippet(Snippet(tactic_content))
                 
         self.root = block_stack[0]
     

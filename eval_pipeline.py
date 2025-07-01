@@ -299,6 +299,7 @@ def main(args):
     print(f"Compiling {len(codes)} codes")
 
     # determine the hammer_list
+    hammer_list = None
     if args.hammer_recipe:
         hammer_list = RECIPE2HAMMER_LIST[args.hammer_recipe]
         if args.hammer_list:
@@ -307,7 +308,7 @@ def main(args):
         hammer_list = args.hammer_list
     elif args.hammer_type:
         hammer_list = [args.hammer_type]
-    args.hammer_list = hammer_list if hammer_list else None
+    args.hammer_list = hammer_list
 
 
     if args.use_lean_server:
