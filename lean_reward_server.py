@@ -133,6 +133,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
 
+        # TODO: use ret_keys to decide what to return
         verify_times = [result.get("verify_time", 0.0) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]

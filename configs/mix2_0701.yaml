@@ -2,5 +2,5 @@ hammer_recipe: mix2
 hammer_list: null
 proofaug: true
 proofaug_ans_subst: false
-remote_timeout: 180
-step_timeout: 60
+remote_timeout: 120
+step_timeout: 30
