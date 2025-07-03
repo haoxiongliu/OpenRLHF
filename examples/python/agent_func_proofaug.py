@@ -79,6 +79,7 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
 
     # find ```lean4 ``` code block in action and replace it with proofaug_proof
     # TODO: use PSA to replace the code blocks in the thinking part
+    # this is the most key part!!!
     if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
         think_start = action.find('<think>')
         think_end = action.rfind('</think>')
