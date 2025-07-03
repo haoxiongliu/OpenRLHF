@@ -4,17 +4,20 @@ Not actually an agent. only 1-step, it is just for API compatibility."""
 from typing import Any, Dict
 import aiohttp
 import re
-from prover.constants import RECIPE2HAMMER_LIST
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
 async def call_remote_reward_model(
-        queries, prompts, labels,
-        proofaug=False, hammer_list=None, hammer_recipe=None,
-        remote_timeout=60, step_timeout=None,
-        **kwargs):
+        queries, prompts, labels, **kwargs):
     """async call remote reward model.
     Returns: a dict of contents, including rewards, proofaug_result"""
+    proofaug_config = kwargs.get("proofaug_config") # type: dict
+    hammer_list = proofaug_config.get("hammer_list", None)
+    hammer_recipe = proofaug_config.get("hammer_recipe", None)
+    proofaug = proofaug_config.get("proofaug", False)
+    step_timeout = proofaug_config.get("step_timeout", 60)
+    remote_timeout = proofaug_config.get("remote_timeout", 300)
+    
     try:
         headers = {"Content-Type": "application/json"}
         if isinstance(queries, str):
@@ -63,8 +66,11 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
             - extra_logs: Additional logging information
     """
     # TODO: if want to add proofaug, we need to first modify vllm_engine_async.py
-    proofaug = kwargs.get("proofaug", False)
-    proofaug_ans_subst = kwargs.get("proofaug_ans_subst", False)
+    proofaug_config = kwargs.get("proofaug_config", None)
+    assert proofaug_config is not None, "proofaug_config is required"
+    proofaug = proofaug_config.get("proofaug", False)
+    proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
+
     ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs)
     ret_obj = dict() if ret_obj is None else ret_obj
     reward = ret_obj.get("rewards", [0.0])[0]
@@ -110,6 +116,5 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
         "scores": reward,  # Scores for dynamic filtering (0-1 reward)
         "next_observation": next_observation,  # The updated observation for vLLM in next step
         "done": True,  # Boolean indicating if the episode is complete
-        "sampling_params": kwargs.get("sampling_params", None),  # Parameters for vLLM sampling in next step
-        "extra_logs": {"dummy_scores": reward},  # Additional logging information
+        "extra_logs": {},  # Additional logging information
     }

@@ -36,6 +36,8 @@ class RewardRequest(BaseModel):
     require_reconstruct: bool = False
     pa_with_orig: bool = False
     non_repl: bool = False
+    time_reward_ratio: float = 0.0
+    time_reward_threshold: int = 120
 
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
@@ -139,10 +141,11 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
 
+        # TODO: use time_reward_ratio and time_reward_threshold
         rewards = []
         for i in range(n):
             if verification_results[i].get("complete", False):
-                reward = 1.0 - args.time_reward_ratio * min(verify_times[i]/args.time_reward_threshold, 1.0)
+                reward = 1.0 - reward_request.time_reward_ratio * min(verify_times[i]/reward_request.time_reward_threshold, 1.0)
             else:
                 reward = 0.0
             rewards.append(reward)
@@ -206,8 +209,6 @@ if __name__ == "__main__":
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
     parser.add_argument("--pty_restart_count", type=int, default=10, help="Pty restart count")
     parser.add_argument("--step_timeout", type=int, default=60, help="Step timeout for the lean server")
-    parser.add_argument("--time_reward_threshold", type=int, default=120, help="Time reward threshold in seconds")
-    parser.add_argument("--time_reward_ratio", type=float, default=0.0, help="Use elapsed time as reward (not implemented yet)")
     args = parser.parse_args()
     
     log_level = getattr(logging, args.log_level.upper())

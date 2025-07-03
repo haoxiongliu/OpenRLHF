@@ -93,14 +93,11 @@ class LLMRayActorAsync(BaseLLMRayActor):
             max_steps: Maximum number of interaction steps
         """
 
-        # Load ProofAug configuration from YAML file
-        with open(self.proofaug_config_path, 'r') as f:
-            proofaug_config = yaml.safe_load(f)
-        print(f"proofaug_config: {proofaug_config}")
-
         # Create semaphore to control concurrent task execution
         NUM_TASKS = int(os.environ.get("OPENRLHF_ASYNC_NUM_TASKS", 128))
         semaphore = asyncio.Semaphore(NUM_TASKS)
+        with open(self.proofaug_config_path, 'r') as f:
+            proofaug_config = yaml.safe_load(f)
 
         async def execute_agent(prompt, label, sampling_params):
             async with semaphore:
@@ -137,12 +134,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     # Use asyncio.to_thread to make Ray remote call non-blocking
                     # Load kwargs config from YAML file
                     kwargs = {"sampling_params": sampling_params,
-                              "proofaug": proofaug_config.get("proofaug", False),
-                              "proofaug_ans_subst": proofaug_config.get("proofaug_ans_subst", False),
-                              "hammer_recipe": proofaug_config.get("hammer_recipe", None),
-                              "hammer_list": proofaug_config.get("hammer_list", None),
-                              "remote_timeout": proofaug_config.get("remote_timeout", 60),
-                              "step_timeout": proofaug_config.get("step_timeout", 20)}
+                              "proofaug_config": proofaug_config}
                     result = await agent_instance.step.remote(observation, action, label, **kwargs)
                     reward = result["rewards"]
                     if isinstance(reward, torch.Tensor):
