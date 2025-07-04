@@ -17,6 +17,7 @@ async def call_remote_reward_model(
     proofaug = proofaug_config.get("proofaug", False)
     step_timeout = proofaug_config.get("step_timeout", 60)
     remote_timeout = proofaug_config.get("remote_timeout", 300)
+    total_timeout = proofaug_config.get("total_timeout", None)
     
     try:
         headers = {"Content-Type": "application/json"}
@@ -36,6 +37,7 @@ async def call_remote_reward_model(
             "require_reconstruct": True,
             "step_timeout": step_timeout,
             "pa_with_orig": True,
+            "total_timeout": total_timeout,
         }
         async with aiohttp.client.ClientSession() as session:
             async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=remote_timeout) as response:

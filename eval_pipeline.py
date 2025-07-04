@@ -18,40 +18,6 @@ from tqdm import tqdm
 import openai
 import requests  # Add for HTTP requests to lean_reward_server
 
-# legacy
-async def compile_codes(
-    args, codes, cpu, memory_limit, step_timeout=300, ast=False, tactics=False, use_pty=False, pty_restart_count=3, random_order=False, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, proofaug=False, pa_with_orig=False
-):
-    lean4_scheduler = Lean4ServerScheduler(
-        max_concurrent_requests=cpu, timeout=step_timeout, memory_limit=memory_limit, name='verifier', use_pty=use_pty, pty_restart_count=pty_restart_count, lean_workspace=lean_workspace, lake_path=DEFAULT_LAKE_PATH, repl_path=repl_path
-    )
-    tasks = [{
-            "code": code,
-            "ast": ast,
-            "tactics": tactics,
-            "proofaug": proofaug,
-            "hammer_type": args.hammer_type,
-            "hammer_list": args.hammer_list,
-            "pa_with_orig": pa_with_orig
-        } for code in codes]
-    indexed_tasks = list(enumerate(tasks))
-    if random_order:
-        random.shuffle(indexed_tasks)
-    indices, shuffled_tasks = zip(*indexed_tasks) if indexed_tasks else ([], [])
-    try:
-        request_id_list = lean4_scheduler.submit_all_request(shuffled_tasks)
-        outputs_list = await lean4_scheduler.async_get_all_request_outputs(request_id_list)
-        if random_order:
-            output_map = {idx: output for idx, output in zip(indices, outputs_list)}
-            outputs_list = [output_map[i] for i in range(len(codes))]
-        return outputs_list
-    except Exception as e:
-        logger.error(f"Error compiling codes: {e}")
-        raise e
-    finally:
-        lean4_scheduler.close()
-
-
 async def compile_codes_with_server(queries, args):
     """
     Use lean_reward_server for code compilation via HTTP requests
@@ -65,9 +31,9 @@ async def compile_codes_with_server(queries, args):
         "hammer_list": args.hammer_list,
         "require_reconstruct": args.require_reconstruct,
         "step_timeout": args.step_timeout,
+        "total_timeout": args.total_timeout,
         "non_repl": args.non_repl,
     }
-    
     
     logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
     response = requests.post(
@@ -82,13 +48,6 @@ async def compile_codes_with_server(queries, args):
     for i in range(len(queries)):
         verification_result = {k: v[i] for k, v in results.items()}
         verification_result["complete"] = verification_result["rewards"] > 0
-        # Map server response to compile_codes format
-        # verification_result = {
-        #     "complete": reward > 0,  # Same logic as lean_reward_server
-        #     "success_type": results["success_types"][i],
-        #     "proofaug_code": results["proofaug_codes"][i],
-        #     "verify_time": results["verify_times"][i]  # Not provided by server
-        # }
         outputs_list.append(verification_result)
     
     logger.info(f"Received results from lean_reward_server: {sum(results['rewards'])} successful out of {len(queries)}")
@@ -310,17 +269,9 @@ def main(args):
         hammer_list = [args.hammer_type]
     args.hammer_list = hammer_list
 
-
-    if args.use_lean_server:
-        # Use lean_reward_server for compilation
-        # TODO: directly pass the complete input+output to the server
-        queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
-        outputs_list = asyncio.run(compile_codes_with_server(queries, args))
-    else:
-        # Use local compilation method
-        outputs_list = asyncio.run(compile_codes(
-            args, codes, args.cpu, args.memory_limit, args.step_timeout, args.ast, args.tactics, 
-            args.use_pty, args.pty_restart_count, args.random_order, args.lean_workspace, args.repl_path, args.proofaug, args.pa_with_orig))
+    assert args.use_lean_server
+    queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
+    outputs_list = asyncio.run(compile_codes_with_server(queries, args))
     
     for i in range(len(to_inference_codes)):
         to_inference_codes[i]["compilation_result"] = outputs_list[i]
@@ -378,7 +329,8 @@ if __name__ == "__main__":
     parser.add_argument('--memory_limit', default=10, type=float)
     parser.add_argument('--temperature', default=1.0, type=float)
     parser.add_argument('--top_p', default=0.95, type=float)
-    parser.add_argument('--step_timeout', default=180, type=int, help="step timeout for the lean server")
+    parser.add_argument('--step_timeout', default=None, type=int, help="step timeout for the lean server")
+    parser.add_argument('--total_timeout', default=None, type=int, help="total timeout for the lean server")
     parser.add_argument('--gpu_memory_utilization', default=0.9, type=float)
     parser.add_argument('--sync', action='store_true', default=False)
     parser.add_argument('--log_file', default="results/summary.log", type=str)
@@ -398,7 +350,7 @@ if __name__ == "__main__":
     parser.add_argument('--random_order', action='store_true', default=False)
     parser.add_argument('--lean_workspace', type=str, default='mathlib4/')
     parser.add_argument('--repl_path', type=str, default=DEFAULT_REPL_PATH)
-    parser.add_argument('--use_lean_server', action='store_true', default=False)
+    parser.add_argument('--use_lean_server', action='store_true', default=True)
     parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
     parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')
     parser.add_argument('--non_repl', action='store_true', default=False)

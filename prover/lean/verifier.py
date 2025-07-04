@@ -6,8 +6,6 @@ import ctypes
 import traceback
 import subprocess
 import multiprocessing as mp
-import threading
-import fcntl
 import select
 import pty
 import termios
@@ -26,6 +24,7 @@ from prover.constants import HINT_DICT
 from prover.utils import DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, has_statement, to_command, n_indent, extract_errors, is_complete
 from prover.constants import RECIPE2HAMMER_LIST
 from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
+import concurrent.futures
 
 
 def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, last_env=None, 
@@ -95,6 +94,7 @@ class Lean4ServerProcess(mp.Process):
         self.header_dict = {}  # Dictionary to store different headers and their environments
         self.use_pty = use_pty
         self.pty_restart_count = pty_restart_count
+        self.restart_count = 0
         self.repl_process = None
         self.latest_state = None
         self.recent_commands = deque(maxlen=100) # max size 100
@@ -103,6 +103,7 @@ class Lean4ServerProcess(mp.Process):
         """Create a REPL process using a pseudo-terminal"""
         
         self._cleanup_repl()
+        
         try:
             self.master_fd, slave_fd = pty.openpty()
             self._set_raw_mode(self.master_fd)
@@ -175,6 +176,8 @@ class Lean4ServerProcess(mp.Process):
         """Initialize the environment for a given header"""
         if header in self.header_dict:
             return self.header_dict[header]
+        
+        self._clean_init_repl()
         result = self._send_command_to_repl(to_command(header, env=None))
         if 'env' not in result:
             messages = result.get('messages', [])   
@@ -264,7 +267,6 @@ class Lean4ServerProcess(mp.Process):
         except Exception as e:
             self._clean_init_repl()
             raise ValueError(f"repl restarted during sending command {command=} due to unhandled error: {e.__class__.__name__} {e}")
-
 
     def _verify_lean4_with_persistent_repl(
         self, 
@@ -552,6 +554,7 @@ class Lean4ServerProcess(mp.Process):
                 self.master_fd = None
             self.repl_process = None
             self.latest_state = None
+            self.restart_count = 0
             self.header_dict.clear()
 
     def run(self):
@@ -563,7 +566,6 @@ class Lean4ServerProcess(mp.Process):
                 logger.error(f"Process {self.idx}: Failed to create initial REPL process, exiting")
                 return
 
-            count = 0
             while True:
                 inputs = self.task_queue.get()
                 if inputs is None:
@@ -580,16 +582,31 @@ class Lean4ServerProcess(mp.Process):
                     if isinstance(task, str):
                         task = dict(code=task)
                     # please refer to the list of arguments in _verify_lean4_with_persistent_repl method
-                    result = self._verify_lean4_with_persistent_repl(**task)
+                    total_timeout = task.get('total_timeout', None)  # 从task中读取timeout，没有则为None（无限等）
+                    if total_timeout is not None:
+                        try:
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(self._verify_lean4_with_persistent_repl, **task)
+                                result = future.result(timeout=total_timeout)
+                        except concurrent.futures.TimeoutError:
+                            result = {
+                                "pass": False,
+                                "complete": False,
+                                "errors": f"verification timed out after {total_timeout} seconds",
+                                "system_errors": f"TimeoutError: verification timed out after {total_timeout} seconds",
+                            }
+                            self._clean_init_repl()  # 超时后重启REPL
+                    else:
+                        # 没有timeout限制，直接调用
+                        result = self._verify_lean4_with_persistent_repl(**task)
 
                     with self.lock:
                         self.request_statuses[request_id] = result
                         self.last_output_time.value = time.time()
                         self.complete_count.value += 1
-                count += 1
-                if count >= self.pty_restart_count:
+                self.restart_count += 1
+                if self.restart_count >= self.pty_restart_count:
                     self._clean_init_repl()
-                    count = 0
             self._cleanup_repl()
         else:   # Non-PTY mode: use verify_lean4_file directly and bypass persistent REPL and header checks. Not supporting proofaug.
             while True:

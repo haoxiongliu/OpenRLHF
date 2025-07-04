@@ -33,11 +33,13 @@ class RewardRequest(BaseModel):
     hammer_list: Optional[List[str]|str] = None
     hammer_recipe: Optional[str] = None
     step_timeout: Optional[int] = None
+    total_timeout: Optional[int] = None
     require_reconstruct: bool = False
     pa_with_orig: bool = False
     non_repl: bool = False
     time_reward_ratio: float = 0.0
     time_reward_threshold: int = 120
+    
 
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
@@ -127,6 +129,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "hammer_recipe": reward_request.hammer_recipe,
             "require_reconstruct": reward_request.require_reconstruct,
             "step_timeout": reward_request.step_timeout,
+            "total_timeout": reward_request.total_timeout,
             "pa_with_orig": reward_request.pa_with_orig,
             "non_repl": reward_request.non_repl,
         } for code in codes]
@@ -207,8 +210,8 @@ if __name__ == "__main__":
     parser.add_argument("--use_log_file", action="store_true", help="Use log file")
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
-    parser.add_argument("--pty_restart_count", type=int, default=10, help="Pty restart count")
-    parser.add_argument("--step_timeout", type=int, default=60, help="Step timeout for the lean server")
+    parser.add_argument("--pty_restart_count", type=int, default=100, help="Pty restart count")
+    parser.add_argument("--step_timeout", type=int, default=180, help="default step timeout for the lean server")
     args = parser.parse_args()
     
     log_level = getattr(logging, args.log_level.upper())
