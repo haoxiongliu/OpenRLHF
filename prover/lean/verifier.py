@@ -582,7 +582,8 @@ class Lean4ServerProcess(mp.Process):
                     if isinstance(task, str):
                         task = dict(code=task)
                     # please refer to the list of arguments in _verify_lean4_with_persistent_repl method
-                    total_timeout = task.get('total_timeout', None)  # 从task中读取timeout，没有则为None（无限等）
+                    
+                    total_timeout = task.pop('total_timeout', None)  # 从task中读取timeout，没有则为None（无限等）
                     if total_timeout is not None:
                         try:
                             with concurrent.futures.ThreadPoolExecutor() as executor:
