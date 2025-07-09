@@ -219,8 +219,11 @@ class ProposalStructure(object):
                     tactic_content += "\n" + lines[i]
                     i += 1
                 parent_block._receive_snippet(Snippet(tactic_content))
-                
         self.root = block_stack[0]
+        while block_stack:
+            top_block = block_stack.pop()
+            top_block.end_line = len(lines) # start:end, so not minus 1
+        
     
     def _traverse_blocks(self, block: Block):
         # we know that things happen in this block.
