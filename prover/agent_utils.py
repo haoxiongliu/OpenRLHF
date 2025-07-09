@@ -35,12 +35,12 @@ class RewardResponse(BaseModel):
     when RewardResponse(**dict) receive extra fields, it will be ignored.
     """
     rewards: List[float] = [0.0]
-    bodies: List[str] = [None]
-    proofaug_subst: List[Dict[str, str]] = [{}]
-    proofaug_codes: List[str] = [None]
-    success_types: List[str] = [None]
-    verify_times: List[float] = [None]
-    errorss: List[str] = [None]
+    bodies: List[Optional[str]] = [None]
+    proofaug_subst: List[Dict] = [{}]
+    proofaug_codes: List[Optional[str]] = [None]
+    success_types: List[Optional[str]] = [None]
+    verify_times: List[Optional[float]] = [None]
+    errorss: List[Optional[str]] = [None]
 
 if __name__ == "__main__":
     ret_dict = {
