@@ -20,25 +20,25 @@ class RewardRequest(BaseModel):
     proofaug: bool = False
     hammer_list: list[str] | str | None = None
     hammer_recipe: str | None = None
-    step_timeout: int | None = None
-    total_timeout: int | None = None
+    step_timeout: float | None = None
+    total_timeout: float | None = None
     require_reconstruct: bool = False
     pa_with_orig: bool = False
     non_repl: bool = False
     time_reward_ratio: float = 0.0
-    time_reward_threshold: int = 120
+    time_reward_threshold: float = 120.0
 
 
 class RewardResponse(BaseModel):
     """
     when RewardResponse(**dict) receive extra fields, it will be ignored.
     """
-    rewards: list[float] = [0.0]
-    bodies: list[str] | None = None
-    proofaug_subst: list[dict] | None = None
-    proofaug_codes: list[str] | None = None
-    success_types: list[str] | None = None
-    verify_times: list[float] | None = None
+    rewards: list[float]
+    bodies: list[str | None] = [None]
+    proofaug_subst: list[dict | None] = [None]
+    proofaug_codes: list[str | None] = [None]
+    success_types: list[str | None] = [None]
+    verify_times: list[float | None] = [None]
     errorss: list[list[str]] = [[]]
 
 if __name__ == "__main__":

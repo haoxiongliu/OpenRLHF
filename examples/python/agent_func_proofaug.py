@@ -1,7 +1,7 @@
 """ProofAug agent function (in implementation)
 Use the lean_reward_server.py as the remote reward model.
 Not actually an agent. only 1-step, it is just for API compatibility."""
-from typing import Any, Dict
+from typing import Any
 import aiohttp
 import asyncio
 import re
@@ -41,27 +41,15 @@ async def call_remote_reward_model(
         pa_with_orig=True,
         total_timeout=total_timeout,
     ).model_dump(exclude_none=True)
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
-                response.raise_for_status()
-                result = await response.json()
-                result = RewardResponse(**result)
-    except asyncio.TimeoutError:
-        print(f"Remote reward model timeout after {remote_timeout} seconds")
-        result = RewardResponse(
-            rewards=[0.0],
-            bodies=[None],
-            proofaug_subst=[{}],
-            proofaug_codes=[None],
-            success_types=[None],
-            verify_times=[None],
-            errorss=[None],
-        )
+    async with aiohttp.ClientSession() as session:
+        async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
+            response.raise_for_status()
+            result = await response.json()
+            result = RewardResponse(**result)
     return result
 
 
-async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
+async def step(observation: str, action: str, label: str, **kwargs) -> dict[str, Any]:
     """Execute one step of verification and return a random reward using torch.rand
 
     Args:
@@ -85,7 +73,10 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
     proofaug = proofaug_config.get("proofaug", False)
     proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
 
-    ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
+    try:
+        ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
+    except asyncio.TimeoutError:
+        return {"rewards": [0.0], "scores": [0.0], "next_observation": observation + action, "done": True, "extra_logs": {}}
     reward = ret_obj.rewards[0]
     proofaug_code = ret_obj.proofaug_codes[0]
     success_type = ret_obj.success_types[0]
