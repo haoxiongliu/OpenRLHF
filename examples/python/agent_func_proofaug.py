@@ -4,6 +4,7 @@ Not actually an agent. only 1-step, it is just for API compatibility."""
 from typing import Any, Dict
 import aiohttp
 import re
+from copy import deepcopy
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
@@ -79,36 +80,45 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
     proofaug_code = ret_obj.get("proofaug_codes", [None])[0]
     success_type = ret_obj.get("success_types", [None])[0]
 
-    # find ```lean4 ``` code block in action and replace it with proofaug_proof
-    # TODO: use PSA to replace the code blocks in the thinking part
-    # this is the most key part!!!
+    # find code block in action and replace it with proofaug_proof
     if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
+        from prover.agent_utils import remove_indent
         think_start = action.find('<think>')
         think_end = action.rfind('</think>')
-        
+        body = ret_obj.get("bodies", [None])[0]
+        proofaug_subst = ret_obj.get("proofaug_subst", [None])[0]
+
         if think_start != -1 and think_end != -1:
             # Keep think part unchanged, only replace lean4 code blocks outside think part
             before_think = action[:think_start]
             think_part = action[think_start:think_end+len('</think>')]
-            # TODO: find the think part ```tactics and find its occuration.
-            # This is not definitely helpful.
+            modified_think = deepcopy(think_part)   # type: str
             after_think = action[think_end+len('</think>'):]
-            
-            # Replace lean4 code blocks only after_think
-            pattern = r'```lean4\s*\n(.*?)\n```'
+            block_pattern = r'```tactics\n(.*?)\n```'
+            tactic_blocks = re.findall(block_pattern, think_part, re.DOTALL) # type: list[str]
+
+            # substitute
+            for rng, pa_block in proofaug_subst.items():
+                orig_block = body[rng[0]:rng[1]]
+                orig_block_no_indent = remove_indent(orig_block)
+                for i, tactic_block in enumerate(tactic_blocks):
+                    if orig_block_no_indent in tactic_block:
+                        modified_think = modified_think.replace(tactic_block, pa_block)
+
+            lean4_pattern = r'```lean4\s*\n(.*?)\n```'
             def replace_lean4_block(match):
                 return f'```lean4\n{proofaug_code}\n```'
             
-            after_think_replaced = re.sub(pattern, replace_lean4_block, after_think, flags=re.DOTALL)
+            modified_after = re.sub(lean4_pattern, replace_lean4_block, after_think, flags=re.DOTALL)
             
-            ret_action = before_think + think_part + after_think_replaced
+            ret_action = before_think + modified_think + modified_after
         else:
             # No think tags, replace all lean4 code blocks
-            pattern = r'```lean4\s*\n(.*?)\n```'
+            lean4_pattern = r'```lean4\s*\n(.*?)\n```'
             def replace_lean4_block(match):
                 return f'```lean4\n{proofaug_code}\n```'
             
-            ret_action = re.sub(pattern, replace_lean4_block, action, flags=re.DOTALL)
+            ret_action = re.sub(lean4_pattern, replace_lean4_block, action, flags=re.DOTALL)
     else:
         ret_action = action
 

@@ -108,7 +108,7 @@ class Snippet(object):
 
 class Block(object):
     """each block's parts is a list of snippets and subblocks"""
-    def __init__(self, parent: Optional[Block]):
+    def __init__(self, parent: Optional[Block], start_line: Optional[int] = None):
         self.parts = [] # type: list[Block|Snippet]
         self.parent = parent
         self.index = parent.index + f".{len(parent.parts)}" if parent else "0"
@@ -116,6 +116,8 @@ class Block(object):
         self.content_snapshot = None # type: str
         self.state = BlockState.UNVERIFIED # wait_sorry, sorry_failed, verified, sttm_failed
         self._proofaug_parts = None
+        self.start_line = start_line
+        self.end_line = None
         
     @property
     def content(self):
@@ -180,11 +182,12 @@ class ProposalStructure(object):
                 indent2level[indent] = len(indent2level)
             level = indent2level[indent]
             while block_stack[-1].level >= level:
-                block_stack.pop()
+                top_block = block_stack.pop()
+                top_block.end_line = i # [start: end) is the block content
             parent_block = block_stack[-1]
             if statement_starts(line):  # add a new block
                 # we know that block_stack[0] is level -1 and level>=0
-                block = Block(parent=parent_block)
+                block = Block(parent=parent_block, start_line=i)
                 sttm_content = line
                 while True: # exit condition is complex. using while True is easier.
                     i += 1

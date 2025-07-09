@@ -349,6 +349,8 @@ class Lean4ServerProcess(mp.Process):
                 prop_struct = ProposalStructure(body)
                 block = prop_struct.root.parts[0]
                 proofaug_index = dict()
+                proofaug_ranges = []
+                proofaug_subst = dict()
                 ps2goals = {None: []}
 
                 def verify_block(block: Block, ps: Optional[int] = None) -> Optional[int]:
@@ -451,6 +453,8 @@ class Lean4ServerProcess(mp.Process):
                                     block._proofaug_parts = [sttm_snippet]
                                     block.state = BlockState.COMPLETED
                                     proofaug_index[block.index] = hammer
+                                    proofaug_ranges.append((block.start_line, block.end_line))
+                                    proofaug_subst[(block.start_line, block.end_line)] = sttm_snippet.content
                                     break
 
                             if cand_i == len(cand_combs) - 1:
@@ -490,9 +494,11 @@ class Lean4ServerProcess(mp.Process):
                     "complete": complete,
                     "errors": errors,
                     "header": header,
-                    "body": block.proofaug_content,
+                    "body": block.content,
                     "success_type": success_type,
+                    "proofaug_ranges": proofaug_ranges,
                     "proofaug_index": proofaug_index,
+                    "proofaug_subst": proofaug_subst,
                     "proofaug_body": result.get('proofaug_body', None),
                     "last_result": result,
                     "hammer_count": hammer_count,

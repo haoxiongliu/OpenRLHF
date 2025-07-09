@@ -138,33 +138,28 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
 
+
+
         # TODO: use ret_keys to decide what to return
-        verify_times = [result.get("verify_time", 0.0) for result in verification_results]
+        verify_times = [result.get("verify_time", None) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
+        bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
+        proofaug_index = [result.get("proofaug_index", None) for result in verification_results]
+        proofaug_ranges = [result.get("proofaug_ranges", None) for result in verification_results]
+        proofaug_subst = [result.get("proofaug_subst", None) for result in verification_results]
 
-        # TODO: use time_reward_ratio and time_reward_threshold
         rewards = []
         for i in range(n):
+            verify_time = verify_times[i] if verify_times[i] is not None else 0.0
             if verification_results[i].get("complete", False):
-                reward = 1.0 - reward_request.time_reward_ratio * min(verify_times[i]/reward_request.time_reward_threshold, 1.0)
+                reward = 1.0 - reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
             else:
                 reward = 0.0
             rewards.append(reward)
 
         i = random.randint(0, n - 1)
-        debug_dict = {
-            # "query": reward_request.queries[i],
-            "code": codes[i],
-            "reward": rewards[i],
-            "proofaug_body": proofaug_bodies[i],
-            "success_type": success_types[i],
-            "errors": errorss[i],
-            "verify_time": verify_times[i],
-        }
-        logger.debug(f"\n[REQ-{request_id}] {debug_dict}")
-
         average_reward = sum(rewards) / len(rewards)
         logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
 
@@ -179,13 +174,20 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 proofaug_proof = proofaug_body.partition(DEF_SIGN)[2]
                 proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
 
-        return {
+        ret_dict = {
             "rewards": rewards,
+            "bodies": bodies,
+            "proofaug_index": proofaug_index,
+            "proofaug_ranges": proofaug_ranges,
+            "proofaug_subst": proofaug_subst,
             "proofaug_codes": proofaug_codes,
             "success_types": success_types,
             "verify_times": verify_times,
             "errorss": errorss,
         }
+        logger.debug(f"\n[REQ-{request_id}] {ret_dict}")
+
+        return ret_dict
     
     return app
 
