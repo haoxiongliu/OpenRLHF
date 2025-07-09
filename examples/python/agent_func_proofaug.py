@@ -94,7 +94,7 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
             think_part = action[think_start:think_end+len('</think>')]
             modified_think = deepcopy(think_part)   # type: str
             after_think = action[think_end+len('</think>'):]
-            block_pattern = r'```tactics\n(.*?)\n```'
+            block_pattern = r'(?<=```tactics\n).*?(?=\n```)'
             tactic_blocks = re.findall(block_pattern, think_part, re.DOTALL) # type: list[str]
 
             # substitute
