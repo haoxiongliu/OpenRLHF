@@ -36,11 +36,11 @@ class RewardResponse(BaseModel):
     """
     rewards: List[float] = [0.0]
     bodies: List[Optional[str]] = [None]
-    proofaug_subst: List[Dict] = [{}]
+    proofaug_subst: List[Optional[Dict]] = [None]
     proofaug_codes: List[Optional[str]] = [None]
     success_types: List[Optional[str]] = [None]
     verify_times: List[Optional[float]] = [None]
-    errorss: List[Optional[str]] = [None]
+    errorss: List[list[str]] = [None]
 
 if __name__ == "__main__":
     ret_dict = {
