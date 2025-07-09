@@ -38,7 +38,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
     if verbose:
         print(message_str)
     start_time = time.time()
-    system_messages = ''
+    system_messages = []
     try:
         outputs = subprocess.run(
             # [lake_path, "exe", 'repl'], 
@@ -58,7 +58,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
             "warnings": [m for m in result.get('messages', []) if m['severity'] == 'warning'],
             "infos": [m for m in result.get('messages', []) if m['severity'] == 'info'],
             "system_messages": system_messages,
-            "system_errors": None,
+            "system_errors": [],
             "ast": ast_results,
             # "verified_code": code,
         }
@@ -70,7 +70,7 @@ def verify_lean4_file(code, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_
         result = {
             "pass": False,
             "complete": False,
-            "system_errors": traceback.format_exc(),
+            "system_errors": [traceback.format_exc()],
             "system_messages": system_messages
         }
     result['verify_time'] = time.time() - start_time
@@ -289,7 +289,7 @@ class Lean4ServerProcess(mp.Process):
             return {
                 "pass": False,
                 "complete": False,
-                "errors": "No code found in the request"
+                "errors": ["No code found in the request"]
             }
         assert not non_repl or not proofaug, "non_repl and proofaug cannot be both True"
 
@@ -319,7 +319,7 @@ class Lean4ServerProcess(mp.Process):
                     "tactics": result.get('tactics', []),
                     "errors": extract_errors(result),
                     "messages": result.get('messages', []),
-                    "system_errors": None,
+                    "system_errors": [],
                     "ast": lean4_parser(code, result['ast']) if 'ast' in result else {},
                     "header": header,
                     "body": body,
@@ -509,8 +509,8 @@ class Lean4ServerProcess(mp.Process):
             verification_result = {
                 "pass": False,
                 "complete": False,
-                "errors": f"exception in verifying {code=}: {e.__class__.__name__} {e}",
-                "system_errors": traceback.format_exc(),
+                "errors": [f"exception in verifying {code=}: {e.__class__.__name__} {e}"],
+                "system_errors": [traceback.format_exc()],
             }
             self._clean_init_repl()
             
@@ -599,8 +599,8 @@ class Lean4ServerProcess(mp.Process):
                             result = {
                                 "pass": False,
                                 "complete": False,
-                                "errors": f"verification timed out after {total_timeout} seconds",
-                                "system_errors": f"TimeoutError: verification timed out after {total_timeout} seconds",
+                                "errors": [f"verification timed out after {total_timeout} seconds"],
+                                "system_errors": [f"TimeoutError: verification timed out after {total_timeout} seconds"],
                             }
                             self._clean_init_repl()  # 超时后重启REPL
                     else:

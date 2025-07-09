@@ -1,17 +1,10 @@
-import os
-from os.path import join
-import re
-import json
-import torch
 import logging
 import argparse
 import datetime
 import uuid
-import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request, Depends
-from pydantic import BaseModel
-from typing import List, Optional, Dict, Annotated, Tuple
+from typing import Annotated
 import uvicorn
 from contextlib import asynccontextmanager
 import random
@@ -119,12 +112,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         } for code in codes]
         
         verification_request_ids = scheduler.submit_all_request(tasks)
-        verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids) # type: List[dict]
+        verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids) # type: list[dict]
         # The result is _verify_lean4_with_persistent_repl return value
-
-
-
-        # TODO: use ret_keys to decide what to return
         verify_times = [result.get("verify_time", None) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         bodies = [result.get("body", None) for result in verification_results]

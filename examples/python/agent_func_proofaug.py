@@ -11,7 +11,7 @@ from prover.agent_utils import RewardResponse, RewardRequest
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
 async def call_remote_reward_model(
-        queries, prompts, labels, **kwargs):
+        queries, prompts, labels, **kwargs) -> RewardResponse:
     """async call remote reward model.
     Returns: a RewardResponse object"""
     proofaug_config = kwargs.get("proofaug_config") # type: dict

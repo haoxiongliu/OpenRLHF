@@ -2,7 +2,6 @@
 Set independent since that module will be dynamically loaded in training.
 """
 from pydantic import BaseModel
-from typing import List, Dict, Optional
 
 def remove_indent(content: str) -> str:
     l_indent = len(content.split('\n')[0])
@@ -15,14 +14,14 @@ class RewardRequest(BaseModel):
     """
     This class is used to send request to lean_reward_server.
     """
-    queries: List[str]  # in fact prompt+response
-    prompts: Optional[List[str]] = None  # in fact prompt only
-    labels: Optional[List[str]] = None
+    queries: list[str]  # in fact prompt+response
+    prompts: list[str] | None = None  # in fact prompt only
+    labels: list[str] | None = None
     proofaug: bool = False
-    hammer_list: Optional[List[str]|str] = None
-    hammer_recipe: Optional[str] = None
-    step_timeout: Optional[int] = None
-    total_timeout: Optional[int] = None
+    hammer_list: list[str] | str | None = None
+    hammer_recipe: str | None = None
+    step_timeout: int | None = None
+    total_timeout: int | None = None
     require_reconstruct: bool = False
     pa_with_orig: bool = False
     non_repl: bool = False
@@ -34,13 +33,13 @@ class RewardResponse(BaseModel):
     """
     when RewardResponse(**dict) receive extra fields, it will be ignored.
     """
-    rewards: List[float] = [0.0]
-    bodies: List[Optional[str]] = [None]
-    proofaug_subst: List[Optional[Dict]] = [None]
-    proofaug_codes: List[Optional[str]] = [None]
-    success_types: List[Optional[str]] = [None]
-    verify_times: List[Optional[float]] = [None]
-    errorss: List[list[str]] = [None]
+    rewards: list[float] = [0.0]
+    bodies: list[str] | None = None
+    proofaug_subst: list[dict] | None = None
+    proofaug_codes: list[str] | None = None
+    success_types: list[str] | None = None
+    verify_times: list[float] | None = None
+    errorss: list[list[str]] = [[]]
 
 if __name__ == "__main__":
     ret_dict = {
