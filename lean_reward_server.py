@@ -11,7 +11,7 @@ import asyncio
 from pathlib import Path
 from fastapi import FastAPI, Request, Depends
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Annotated
+from typing import List, Optional, Dict, Annotated, Tuple
 import uvicorn
 from contextlib import asynccontextmanager
 import random
@@ -21,25 +21,9 @@ import sys
 
 from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN
+from prover.agent_utils import RewardResponse, RewardRequest
 
 logger = logging.getLogger("lean_reward_server")
-
-# you should always modify this first before modifying the eval_pipeline.py and vllm_engine_async.py
-class RewardRequest(BaseModel):
-    queries: List[str]  # in fact prompt+response
-    prompts: Optional[List[str]] = None  # in fact prompt only
-    labels: Optional[List[str]] = None
-    proofaug: bool = False
-    hammer_list: Optional[List[str]|str] = None
-    hammer_recipe: Optional[str] = None
-    step_timeout: Optional[int] = None
-    total_timeout: Optional[int] = None
-    require_reconstruct: bool = False
-    pa_with_orig: bool = False
-    non_repl: bool = False
-    time_reward_ratio: float = 0.0
-    time_reward_threshold: int = 120
-    
 
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
@@ -78,7 +62,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     def get_scheduler(request: Request) -> Lean4ServerScheduler:
         return request.app.state.scheduler
 
-    @app.post("/reward")
+    @app.post("/reward", response_model=RewardResponse)
     async def get_reward(
         reward_request: RewardRequest,
         args: Annotated[argparse.Namespace, Depends(get_args)],
@@ -135,7 +119,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         } for code in codes]
         
         verification_request_ids = scheduler.submit_all_request(tasks)
-        verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids)
+        verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids) # type: List[dict]
         # The result is _verify_lean4_with_persistent_repl return value
 
 
@@ -174,20 +158,20 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 proofaug_proof = proofaug_body.partition(DEF_SIGN)[2]
                 proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
 
-        ret_dict = {
-            "rewards": rewards,
-            "bodies": bodies,
-            "proofaug_index": proofaug_index,
-            "proofaug_ranges": proofaug_ranges,
-            "proofaug_subst": proofaug_subst,
-            "proofaug_codes": proofaug_codes,
-            "success_types": success_types,
-            "verify_times": verify_times,
-            "errorss": errorss,
-        }
-        logger.debug(f"\n[REQ-{request_id}] {ret_dict}")
+        response = RewardResponse(
+            rewards=rewards,
+            bodies=bodies,
+            proofaug_index=proofaug_index,
+            proofaug_ranges=proofaug_ranges,
+            proofaug_subst=proofaug_subst,
+            proofaug_codes=proofaug_codes,
+            success_types=success_types,
+            verify_times=verify_times,
+            errorss=errorss,
+        )
+        logger.debug(f"\n[REQ-{request_id}] {response}")
 
-        return ret_dict
+        return response
     
     return app
 

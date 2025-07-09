@@ -17,6 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import openai
 import requests  # Add for HTTP requests to lean_reward_server
+from prover.agent_utils import RewardRequest
 
 async def compile_codes_with_server(queries, args):
     """
@@ -24,16 +25,16 @@ async def compile_codes_with_server(queries, args):
     """
     server_url = f"http://{args.lean_server_host}:{args.lean_server_port}"
     # Prepare request data in the format expected by lean_reward_server
-    request_data = {
-        "queries": queries,  # Send codes as queries in completion mode
-        "proofaug": args.proofaug,
-        "pa_with_orig": args.pa_with_orig,
-        "hammer_list": args.hammer_list,
-        "require_reconstruct": args.require_reconstruct,
-        "step_timeout": args.step_timeout,
-        "total_timeout": args.total_timeout,
-        "non_repl": args.non_repl,
-    }
+    request_data = RewardRequest(
+        queries=queries,  # Send codes as queries in completion mode
+        proofaug=args.proofaug,
+        pa_with_orig=args.pa_with_orig,
+        hammer_list=args.hammer_list,
+        require_reconstruct=args.require_reconstruct,
+        step_timeout=args.step_timeout,
+        total_timeout=args.total_timeout,
+        non_repl=args.non_repl,
+    ).model_dump(exclude_none=True)
     
     logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
     response = requests.post(
@@ -269,7 +270,7 @@ def main(args):
         hammer_list = [args.hammer_type]
     args.hammer_list = hammer_list
 
-    assert args.use_lean_server
+    assert args.use_lean_server, "non-lean_server mode is deprecated"
     queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
     outputs_list = asyncio.run(compile_codes_with_server(queries, args))
     

@@ -3,15 +3,17 @@ Use the lean_reward_server.py as the remote reward model.
 Not actually an agent. only 1-step, it is just for API compatibility."""
 from typing import Any, Dict
 import aiohttp
+import asyncio
 import re
 from copy import deepcopy
+from prover.agent_utils import RewardResponse, RewardRequest
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
 async def call_remote_reward_model(
         queries, prompts, labels, **kwargs):
     """async call remote reward model.
-    Returns: a dict of contents, including rewards, proofaug_result"""
+    Returns: a RewardResponse object"""
     proofaug_config = kwargs.get("proofaug_config") # type: dict
     hammer_list = proofaug_config.get("hammer_list", None)
     hammer_recipe = proofaug_config.get("hammer_recipe", None)
@@ -20,35 +22,44 @@ async def call_remote_reward_model(
     remote_timeout = proofaug_config.get("remote_timeout", 300)
     total_timeout = proofaug_config.get("total_timeout", None)
     
+    headers = {"Content-Type": "application/json"}
+    if isinstance(queries, str):
+        queries = [queries]
+    if isinstance(prompts, str):
+        prompts = [prompts]
+    if isinstance(labels, str):
+        labels = [labels]
+    data = RewardRequest(
+        queries=queries,
+        prompts=prompts, 
+        labels=labels,
+        proofaug=proofaug,
+        hammer_list=hammer_list,
+        hammer_recipe=hammer_recipe,
+        require_reconstruct=True,
+        step_timeout=step_timeout,
+        pa_with_orig=True,
+        total_timeout=total_timeout,
+    ).model_dump(exclude_none=True)
     try:
-        headers = {"Content-Type": "application/json"}
-        if isinstance(queries, str):
-            queries = [queries]
-        if isinstance(prompts, str):
-            prompts = [prompts]
-        if isinstance(labels, str):
-            labels = [labels]
-        data = {
-            "queries": queries,
-            "prompts": prompts, 
-            "labels": labels,
-            "proofaug": proofaug,
-            "hammer_list": hammer_list,
-            "hammer_recipe": hammer_recipe,
-            "require_reconstruct": True,
-            "step_timeout": step_timeout,
-            "pa_with_orig": True,
-            "total_timeout": total_timeout,
-        }
-        async with aiohttp.client.ClientSession() as session:
-            async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=remote_timeout) as response:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
                 response.raise_for_status()
                 result = await response.json()
-                return result
-                
-    except Exception as e:
-        print(f"Remote reward model error: {e}")
-        return None
+                result = RewardResponse(**result)
+    except asyncio.TimeoutError:
+        print(f"Remote reward model timeout after {remote_timeout} seconds")
+        result = RewardResponse(
+            rewards=[0.0],
+            bodies=[None],
+            proofaug_subst=[{}],
+            proofaug_codes=[None],
+            success_types=[None],
+            verify_times=[None],
+            errorss=[None],
+        )
+    return result
+
 
 async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
     """Execute one step of verification and return a random reward using torch.rand
@@ -74,19 +85,18 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
     proofaug = proofaug_config.get("proofaug", False)
     proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
 
-    ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs)
-    ret_obj = dict() if ret_obj is None else ret_obj
-    reward = ret_obj.get("rewards", [0.0])[0]
-    proofaug_code = ret_obj.get("proofaug_codes", [None])[0]
-    success_type = ret_obj.get("success_types", [None])[0]
+    ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
+    reward = ret_obj.rewards[0]
+    proofaug_code = ret_obj.proofaug_codes[0]
+    success_type = ret_obj.success_types[0]
 
     # find code block in action and replace it with proofaug_proof
     if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
         from prover.agent_utils import remove_indent
         think_start = action.find('<think>')
         think_end = action.rfind('</think>')
-        body = ret_obj.get("bodies", [None])[0]
-        proofaug_subst = ret_obj.get("proofaug_subst", [None])[0]
+        body = ret_obj.bodies[0]
+        proofaug_subst = ret_obj.proofaug_subst[0]
 
         if think_start != -1 and think_end != -1:
             # Keep think part unchanged, only replace lean4 code blocks outside think part
@@ -100,10 +110,11 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
             # substitute
             for rng, pa_block in proofaug_subst.items():
                 start, end = map(int, rng.split(':'))
-                orig_block = body[start:end]
+                orig_block = '\n'.join(body.split('\n')[start:end])
                 orig_block_no_indent = remove_indent(orig_block)
                 for i, tactic_block in enumerate(tactic_blocks):
                     if orig_block_no_indent in tactic_block:
+                        breakpoint()
                         modified_think = modified_think.replace(tactic_block, pa_block)
 
             lean4_pattern = r'```lean4\s*\n(.*?)\n```'
@@ -120,6 +131,7 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
                 return f'```lean4\n{proofaug_code}\n```'
             
             ret_action = re.sub(lean4_pattern, replace_lean4_block, action, flags=re.DOTALL)
+        breakpoint()
     else:
         ret_action = action
 
