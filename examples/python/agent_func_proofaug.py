@@ -99,7 +99,8 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
 
             # substitute
             for rng, pa_block in proofaug_subst.items():
-                orig_block = body[rng[0]:rng[1]]
+                start, end = map(int, rng.split(':'))
+                orig_block = body[start:end]
                 orig_block_no_indent = remove_indent(orig_block)
                 for i, tactic_block in enumerate(tactic_blocks):
                     if orig_block_no_indent in tactic_block:

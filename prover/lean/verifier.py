@@ -454,7 +454,7 @@ class Lean4ServerProcess(mp.Process):
                                     block.state = BlockState.COMPLETED
                                     proofaug_index[block.index] = hammer
                                     proofaug_ranges.append((block.start_line, block.end_line))
-                                    proofaug_subst[(block.start_line, block.end_line)] = sttm_snippet.content
+                                    proofaug_subst[f"{block.start_line}:{block.end_line}"] = sttm_snippet.content
                                     break
 
                             if cand_i == len(cand_combs) - 1:

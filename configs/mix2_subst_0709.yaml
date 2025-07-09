@@ -3,3 +3,5 @@ proofaug_ans_subst: true
 remote_timeout: 300
 total_timeout: 240
 step_timeout: 180
+
+hammer_recipe: mix2
