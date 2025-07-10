@@ -72,6 +72,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     assert proofaug_config is not None, "proofaug_config is required"
     proofaug = proofaug_config.get("proofaug", False)
     proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
+    proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
 
     try:
         ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
@@ -89,7 +90,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         body = ret_obj.bodies[0]
         proofaug_subst = ret_obj.proofaug_subst[0]
 
-        if think_start != -1 and think_end != -1:
+        if think_start != -1 and think_end != -1 and proofaug_think_mode:
             # Keep think part unchanged, only replace lean4 code blocks outside think part
             before_think = action[:think_start]
             think_part = action[think_start:think_end+len('</think>')]
@@ -98,15 +99,20 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             block_pattern = r'(?<=```tactics\n).*?(?=\n```)'
             tactic_blocks = re.findall(block_pattern, think_part, re.DOTALL) # type: list[str]
 
-            # substitute
-            for rng, pa_block in proofaug_subst.items():
-                start, end = map(int, rng.split(':'))
-                orig_block = '\n'.join(body.split('\n')[start:end])
-                orig_block_no_indent = remove_indent(orig_block)
-                for i, tactic_block in enumerate(tactic_blocks):
-                    if orig_block_no_indent in tactic_block:
-                        breakpoint()
-                        modified_think = modified_think.replace(tactic_block, pa_block)
+            # note that kimina tactic block can be repeated single tactics
+            # should remove all extra thinking after the final tactic block for correct ones
+            assert proofaug_think_mode in ["replace_v1", "remove"], f"Invalid proofaug_think_mode: {proofaug_think_mode}"
+            if proofaug_think_mode == "replace_v1":
+                for rng, pa_block in proofaug_subst.items():
+                    start, end = map(int, rng.split(':'))
+                    orig_block = '\n'.join(body.split('\n')[start:end])
+                    orig_block_no_indent = remove_indent(orig_block)
+                    for i, tactic_block in enumerate(tactic_blocks):
+                        if orig_block_no_indent in tactic_block:
+                            # breakpoint()
+                            modified_think = modified_think.replace(tactic_block, pa_block)
+            elif proofaug_think_mode == "remove":
+                modified_think = ""
 
             lean4_pattern = r'```lean4\s*\n(.*?)\n```'
             def replace_lean4_block(match):
@@ -122,7 +128,6 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                 return f'```lean4\n{proofaug_code}\n```'
             
             ret_action = re.sub(lean4_pattern, replace_lean4_block, action, flags=re.DOTALL)
-        breakpoint()
     else:
         ret_action = action
 
