@@ -315,6 +315,7 @@ class Lean4ServerProcess(mp.Process):
                 
                 complete = is_complete(result)
                 verification_result = {
+                    "success_type": 'original',
                     "sorries": result.get('sorries', []), 
                     "tactics": result.get('tactics', []),
                     "errors": extract_errors(result),
@@ -486,7 +487,7 @@ class Lean4ServerProcess(mp.Process):
                 errors = extract_errors(result)
                 complete = block.state == BlockState.COMPLETED
                 if complete:
-                    success_type = 'original' if not proofaug_index else 'proofaug'
+                    success_type = 'pa_orig' if not proofaug_index else 'proofaug'
                 else:
                     success_type = 'failed'
                 verification_result = {
