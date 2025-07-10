@@ -1,9 +1,8 @@
 proofaug: true
+hammer_recipe: mix2
 proofaug_ans_subst: true
 proofaug_think_mode: remove
 
 remote_timeout: 300
 total_timeout: 240
 step_timeout: 180
-
-hammer_recipe: mix2

@@ -77,7 +77,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     try:
         ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
     except asyncio.TimeoutError:
-        return {"rewards": [0.0], "scores": [0.0], "next_observation": observation + action, "done": True, "extra_logs": {}}
+        return {"rewards": 0.0, "scores": 0.0, "next_observation": observation + action, "done": True, "extra_logs": {}}
     reward = ret_obj.rewards[0]
     proofaug_code = ret_obj.proofaug_codes[0]
     success_type = ret_obj.success_types[0]
