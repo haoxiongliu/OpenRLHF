@@ -74,7 +74,7 @@ def setup_logger():
     _prover_logger = logger
     
     # Log initialization
-    logger.info(f"Prover logger initialized. Log file: {LOG_FILE}")
+    # logger.info(f"Prover logger initialized. Log file: {LOG_FILE}")
     
     return logger
 

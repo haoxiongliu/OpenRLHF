@@ -18,7 +18,7 @@ class RewardRequest(BaseModel):
     prompts: list[str] | None = None  # in fact prompt only
     labels: list[str] | None = None
     proofaug: bool = False
-    hammer_list: list[str] | str | None = None
+    hammer_list: list[str|None] | str | None = None
     hammer_recipe: str | None = None
     step_timeout: float | None = None
     total_timeout: float | None = None
@@ -45,8 +45,6 @@ if __name__ == "__main__":
     ret_dict = {
         "rewards": [0.0],
         "bodies": ["```lean4\n\n```"],
-        "proofaug_index": [0],
-        "proofaug_ranges": [(0, 0)],
         "proofaug_subst": ["```lean4\n\n```"],
         "proofaug_codes": ["```lean4\n\n```"],
         "success_types": ["proofaug"],

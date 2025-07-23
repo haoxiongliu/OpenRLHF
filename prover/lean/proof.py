@@ -3,7 +3,7 @@ import json
 
 import numpy as np
 
-from prover.utils import AttrDict, LEAN4_DEFAULT_HEADER
+from prover.utils import AttrDict, DEEPSEEK_HEADER
 
 
 class Proof(object):
@@ -156,7 +156,7 @@ class ProofSummarizer(object):
                 If set to None, the downstream tasks may require the verification result as inputs.
         """
         self.formal_statement = data['formal_statement']
-        self.header = data.get('header', LEAN4_DEFAULT_HEADER)
+        self.header = data.get('header', DEEPSEEK_HEADER)
         self.tailer = data.get('tailer', str())
         self.scheduler = scheduler
     

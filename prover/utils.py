@@ -5,7 +5,7 @@ import json
 import pytz
 from pathlib import Path
 from datetime import datetime
-from collections import UserDict, defaultdict
+from collections import defaultdict
 from importlib.machinery import SourceFileLoader
 from easydict import EasyDict as AttrDict
 from copy import deepcopy
@@ -16,28 +16,26 @@ from datasets import load_dataset, Dataset
 import glob
 import csv
 from typing import Optional
-from prover.constants import HINT_DICT, RECIPE2HAMMER_LIST
+from os.path import join
 
 DEF_SIGN=":="
 HOME_DIR = os.path.expanduser('~')
 PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_LAKE_PATH = f'{HOME_DIR}/.elan/bin/lake'
-DEFAULT_REPL_PATH = f'{PROJ_DIR}/repl/.lake/build/bin/repl'
-DEFAULT_LEAN_WORKSPACE = f'{PROJ_DIR}/mathlib4/'
-LEAN4_DEFAULT_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
-
-
+DEFAULT_LAKE_PATH = join(HOME_DIR, '.elan/bin/lake')
+DEFAULT_REPL_PATH = join(PROJ_DIR, 'lean-gym-repl/.lake/build/bin/repl')
+DEFAULT_LEAN_WORKSPACE= join(PROJ_DIR, 'lean-gym')
+DEEPSEEK_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
 
 def non_cot_prompt(data):
     return "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}".format(
-        header=data.get('header', LEAN4_DEFAULT_HEADER),
+        header=data.get('header', DEEPSEEK_HEADER),
         informal_prefix=data.get('informal_prefix', str()),
         formal_statement=data['formal_statement'],
     )
 
 def non_cot_few_shot_prompt(data):
     return "Complete the following Lean 4 code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}{formal_proof}\n```\n\n\n".format(
-        header=data.get('header', LEAN4_DEFAULT_HEADER),
+        header=data.get('header', DEEPSEEK_HEADER),
         informal_prefix=data.get('informal_prefix', str()),
         formal_statement=data['formal_statement'],
         formal_proof=data['formal_proof'],
@@ -45,14 +43,14 @@ def non_cot_few_shot_prompt(data):
 
 def cot_prompt(data):
     return "Complete the following Lean 4 code with explanatory comments preceding each line of code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}".format(
-        header=data.get('header', LEAN4_DEFAULT_HEADER),
+        header=data.get('header', DEEPSEEK_HEADER),
         informal_prefix=data.get('informal_prefix', str()),
         formal_statement=data['formal_statement'],
     )
 
 def cot_few_shot_prompt(data):
     return "Complete the following Lean 4 code with explanatory comments preceding each line of code:\n\n```lean4\n{header}{informal_prefix}{formal_statement}{formal_proof}\n```\n\n\n".format(
-        header=data.get('header', LEAN4_DEFAULT_HEADER),
+        header=data.get('header', DEEPSEEK_HEADER),
         informal_prefix=data.get('informal_prefix', str()),
         formal_statement=data['formal_statement'],
         formal_proof=data['formal_proof'],
@@ -109,19 +107,50 @@ def write_as_jsonl(items: list[dict] | dict, filepath, mode='x', comple_nl=False
         print(f'{len(items)} items saved to {filepath}')
 
 
+
+def extract_header(code: str) -> str:
+    """
+    Extract the header from the code.
+    """
+    keywords = ["have", "theorem", "example", "abbrev", "opaque", "def exercise"]
+    lines = code.splitlines()
+    for i, line in enumerate(lines):
+        if any(line.strip().startswith(kw) for kw in keywords):
+            return "\n".join(lines[:i])
+    return ""
+
+
+
+
+def merge_code(prompt_code: str, response_code: str) -> str:
+    """
+    Given a prompt and a response both including ```lean4\n...\n```, return the full code.
+    should use the prompt header+statement and response theorem content
+    """
+    if DEF_SIGN not in prompt_code or DEF_SIGN not in response_code:
+        return ""
+    prefix = prompt_code.split(DEF_SIGN)[0]
+    sep_pos = response_code.find(DEF_SIGN)  # cannot use split since response may contain multiple DEF_SIGN in the proof
+    return prefix + response_code[sep_pos:]
+
+
+def remove_think(text: str) -> str:
+    # find the first <think> and last </think> (if no last </think>, remove all content)
+    think_start = text.find('<think>')
+    think_end = text.rfind('</think>')
+    if think_end == -1:
+        # If no closing </think> found, remove everything from the first <think> onward
+        if think_start != -1:
+            text = text[:think_start]
+        else:
+            text = text
+    else:
+        text = text[:think_start] + text[think_end+len('</think>'):]
+    return text
+
 def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Optional[str]:
     if omit_think:
-        # find the first <think> and last </think> (if no last </think>, remove all content)
-        think_start = text.find('<think>')
-        think_end = text.rfind('</think>')
-        if think_end == -1:
-            # If no closing </think> found, remove everything from the first <think> onward
-            if think_start != -1:
-                text = text[:think_start]
-            else:
-                text = text
-        else:
-            text = text[:think_start] + text[think_end+len('</think>'):]
+        text = remove_think(text)
     code = None
     pattern = r'```lean4?\n(.*?)\n```'
     
@@ -555,9 +584,9 @@ def has_unrecoverable_error(messages: list[str]) -> bool:
 # The following functions are used to check the proof status.
 # for "linear" branch of repl, v4.19.0.
 
-def extract_errors(result: dict) -> list[str]:
+def compile_errors(result: dict) -> list[str]:
     """handle ['messages'][0]['severity] format and ['message] format of repl,
-    only extract the error message. DOES NOT HANDLE OPEN GOALS REMAIN.
+    only extract the error message due to unable to compile. DOES NOT HANDLE OPEN GOALS REMAIN.
     {"sorries":
     [{"proofState": 1,
     "pos": {"line": 3, "column": 31},
@@ -602,18 +631,24 @@ def is_incomplete(result: dict) -> bool:
 
 
 
-def is_complete(result: dict) -> bool:
+def is_complete(result: dict, body: str) -> bool:
     """
     Check if the proof is complete according to the repl result.
+    legacy version of lean (<4.20.0) has no "Goals accomplished" in the info.
+    we do not care whether there is a compilation error. we only care if all goals are solved.
     """
-    ret_val = False
-    if "messages" in result:
-        infos = [m for m in result.get('messages', []) if m['severity'] == 'info']
-        if any("Goals accomplished" in info.get('data', '') for info in infos):
-            ret_val = True
-    elif 'proofStatus' in result:
-        ret_val = result['proofStatus'] == 'Completed'  # Agentus version of repl
-    return ret_val
+    # we cannot use extract_errors here since it does not extract 
+    if 'proofStatus' in result:
+        return result['proofStatus'] == 'Completed'  # linear version of repl
+    else:        
+        if not has_statement(body):
+            return False
+        for m in result.get("messages", []):
+            if "declaration uses 'sorry'" in m["data"]:
+                return False
+            if m["severity"] == "error":
+                return False
+        return True
 
 if __name__ == "__main__":
     import argparse

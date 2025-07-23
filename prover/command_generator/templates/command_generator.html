@@ -445,7 +445,7 @@
                 
                 // Add to history - use the command from REPL response
                 const timestamp = new Date().toLocaleString();
-                addToHistory(result.command || data, result.result || result, timestamp);
+                addToHistory(result.command || data, result, timestamp);
                 
                 // Show result
                 const resultDiv = document.getElementById('result');

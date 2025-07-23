@@ -12,3 +12,7 @@
 	path = lean-gym
 	url = https://gitlab.com/Vivace_m/lean-gym.git
 	branch = master
+[submodule "lean-gym-repl"]
+	path = lean-gym-repl
+	url = https://github.com/haoxiongliu/repl.git
+	branch = linear-v4.20.0

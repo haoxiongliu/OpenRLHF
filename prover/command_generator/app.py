@@ -21,6 +21,11 @@ async def lifespan(app: FastAPI):
     # Startup
     global repl_server  # 改个名字，更清楚表示这不是真正的"进程"
     
+    # Get lean_workspace from environment variable or use default
+    lean_workspace = os.environ.get('LEAN_WORKSPACE', DEFAULT_LEAN_WORKSPACE)
+    repl_path = os.environ.get('REPL_PATH', DEFAULT_REPL_PATH)
+    print(f"Using lean workspace: {lean_workspace}")
+    
     # 创建对象（但不当作进程使用）
     repl_server = Lean4ServerProcess(
         idx=0,
@@ -30,8 +35,8 @@ async def lifespan(app: FastAPI):
         timeout=60,
         memory_limit=10,  # 10GB limit
         lake_path=DEFAULT_LAKE_PATH,
-        repl_path=DEFAULT_REPL_PATH,
-        lean_workspace=DEFAULT_LEAN_WORKSPACE,
+        repl_path=repl_path,
+        lean_workspace=lean_workspace,
         use_pty=True,
         pty_restart_count=100
     )
@@ -134,10 +139,7 @@ async def apply_to_repl(request: REPLRequest, app_request: Request):
         )
         
         result = repl_server._send_command_to_repl(command)
-        return JSONResponse({
-            "command": command,
-            "result": result
-        })
+        return JSONResponse(result)
         
     except Exception as e:
         import traceback

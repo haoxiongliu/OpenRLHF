@@ -68,7 +68,7 @@ from enum import StrEnum
 
 class BlockState(StrEnum):
     UNVERIFIED = 'unverified' # initial state
-    WAIT_SORRY = 'wait_sorry'
+    WAIT_SORRY = 'wait_sorry' # already legacy
     SORRY_FAILED = 'sorry_failed'
     PASSED = 'compilation_passed' # almost legacy
     STTM_FAILED = 'sttm_failed'
@@ -80,7 +80,6 @@ class Snippet(object):
     Always add a newline before adding a new snippet."""
     def __init__(self, content: str = ''):
         self.content = content
-        self._proofaug_content = None
     
     @property
     def category(self):
@@ -91,10 +90,7 @@ class Snippet(object):
     
     @property
     def proofaug_content(self):
-        if self._proofaug_content is None:
-            return self.content
-        else:
-            return self._proofaug_content
+        return self.content
 
     def _receive_snippet(self, snippet: Snippet | str):
         new_content = snippet.content if isinstance(snippet, Snippet) else snippet

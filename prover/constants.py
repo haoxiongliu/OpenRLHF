@@ -10,6 +10,7 @@ HINT_DICT = {
     "linarith": r"linarith",
     'ring_nf': r"ring_nf",
     'simp_all': r"simp_all",
+    "norm_cast": r"norm_cast",
     "norm_num": r"norm_num",
     "field_simp": r"field_simp [*] at *",
     "bound": r"bound",
@@ -21,10 +22,15 @@ HINT_DICT = {
     "leanhammer_4": r"hammer {aesopPremises := 4, autoPremises := 4}",
     "leanhammer_5": r"hammer {aesopPremises := 5, autoPremises := 5}",
     None: None,
-    "": None
+    "dummy": None
 }
 
 RECIPE2HAMMER_LIST = {
+    "dummy": ["dummy"],
     "mix": ["bound", "nlinarith", "simp_all", "field_simp", "omega", "my_hint", "aesop"],
     "mix2": ["aesop", "my_hint", "omega"],
+    "hammer0": ["leanhammer_0"],
+    "mixh0_v1": ["simp_all", "field_simp", "linarith", "leanhammer_0",  "norm_num", "ring_nf", "omega"],
+    "mixh0_v2": ["simp_all", "field_simp", "nlinarith", "leanhammer_0",  "norm_num", "ring_nf", "omega"],
+    "mixh0_v3": ["simp_all", "field_simp", "nlinarith", "leanhammer_0",  "norm_num", "ring_nf", "norm_cast", "my_hint", "omega"],
 }

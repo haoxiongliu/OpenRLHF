@@ -23,6 +23,8 @@ transformers_stream_generator
 wandb
 wheel
 torchdata
+matplotlib
+pandas
 
 ring_flash_attn
 # prover

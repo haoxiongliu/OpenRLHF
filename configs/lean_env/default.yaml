@@ -1,0 +1,3 @@
+lean_workspace: lean-gym
+repl_path: lean-gym-repl/.lake/build/bin/repl
+use_relative_path: true

@@ -6,10 +6,9 @@ import os
 import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, get_semi_proofs, smt_aster, DEFAULT_LEAN_WORKSPACE, LEAN4_DEFAULT_HEADER, DEFAULT_LAKE_PATH, DEFAULT_REPL_PATH, DEF_SIGN, RECIPE2HAMMER_LIST
+from prover.utils import extract_code, DEEPSEEK_HEADER, DEF_SIGN
+from prover.constants import RECIPE2HAMMER_LIST
 from prover.logger import logger
-import random
 import torch
 from transformers import AutoTokenizer
 from os.path import join
@@ -108,17 +107,15 @@ def main(args):
         tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
         if args.template_name:
             with open(join("templates", args.template_name + ".json"), mode='r') as f:
-                template = json.loads(f.read())
+                template = json.loads(f.read()) # type: dict
             template_examples = []
-        if args.template_example:
-            with open(join("templates", "examples", args.template_example + ".jsonl"), mode='r') as f:
-                for line in f:
-                    template_examples.append(json.loads(line))
-            template_examples = template_examples[:args.n_shot]
+            if args.template_example: # system, user, assistant, stop
+                with open(join("templates", "examples", args.template_example + ".jsonl"), mode='r') as f:
+                    for line in f:
+                        template_examples.append(json.loads(line))
+                template_examples = template_examples[:args.n_shot]
         for data in data_list:
-            header = data.get('header', LEAN4_DEFAULT_HEADER)
-            if args.proofaug and any('smt' in hammer for hammer in args.hammer_list):
-                header = "import Smt\nimport Smt.Real\n" + header
+            header = data.get('header', DEEPSEEK_HEADER)
             formal_statement = data['formal_statement'] # until := by\n (or no \n, it depends)
             informal_prefix = data.get('informal_prefix', str())
             if informal_prefix:
@@ -131,10 +128,9 @@ def main(args):
 
             # we provide the following fields:
             # problem, informal_prefix, header, formal statement
-            # currently do not support few-shot
             if args.template_name:
                 messages = []
-                if "system" in template and template["system"]:
+                if template.get("system"):
                     messages.append({"role": "system", "content": template["system"]})
                 for example in template_examples:
                     messages.append({"role": "user", "content": template["user"].format(**example)})
@@ -317,7 +313,7 @@ if __name__ == "__main__":
     parser.add_argument('--use_remote_llm', action='store_true', default=False)
     parser.add_argument('--max_requests_llm', default=16, type=int)
     parser.add_argument('--template_name', type=str, default=None)
-    parser.add_argument('--template_example', type=str, default=None)
+    parser.add_argument('--template_example', type=str, default=None, help="templates/examples/{}.jsonl")
     parser.add_argument('--chat_template_fp', type=str, default=None)
     parser.add_argument('--n_shot', type=int, default=1)
     parser.add_argument('--base_url', default=None, type=str)
@@ -345,12 +341,9 @@ if __name__ == "__main__":
     parser.add_argument('--hammer_recipe', type=str, default=None)
     parser.add_argument('--proofaug', action='store_true', default=False)
     parser.add_argument('--pa_with_orig', action='store_true', default=False)
-    parser.add_argument('--require_reconstruct', action='store_true', default=False)
+    parser.add_argument('--require_reconstruct', action='store_true', default=True)
     parser.add_argument('--proofaug_legacy', action='store_true', default=False)
     parser.add_argument('--pty_restart_count', default=100, type=int)
-    parser.add_argument('--random_order', action='store_true', default=False)
-    parser.add_argument('--lean_workspace', type=str, default='mathlib4/')
-    parser.add_argument('--repl_path', type=str, default=DEFAULT_REPL_PATH)
     parser.add_argument('--use_lean_server', action='store_true', default=True)
     parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
     parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')

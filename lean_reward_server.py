@@ -10,20 +10,38 @@ from contextlib import asynccontextmanager
 import random
 import signal
 import sys
+import yaml
+from os.path import join
+
 
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN
+from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN
 from prover.agent_utils import RewardResponse, RewardRequest
 
 logger = logging.getLogger("lean_reward_server")
 
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
-    lake_path = args.lake_path or DEFAULT_LAKE_PATH
-    lean_workspace = args.lean_workspace or DEFAULT_LEAN_WORKSPACE
-    repl_path = args.repl_path or DEFAULT_REPL_PATH
+    with open(join(PROJ_DIR, "configs", "lean_env", f"{args.config_name}.yaml"), 'r') as f:
+        cfg = yaml.safe_load(f)
+    lake_path = cfg.get("lake_path", args.lake_path or DEFAULT_LAKE_PATH)
+    if cfg.get("lean_workspace"):
+        if cfg.get("use_relative_path", True):
+            lean_workspace = join(PROJ_DIR, cfg.get("lean_workspace"))
+        else:
+            lean_workspace = cfg.get("lean_workspace")
+    else:
+        lean_workspace = args.lean_workspace or DEFAULT_LEAN_WORKSPACE
+    if cfg.get("repl_path"):
+        if cfg.get("use_relative_path", True):
+            repl_path = join(PROJ_DIR, cfg.get("repl_path"))
+        else:
+            repl_path = cfg.get("repl_path")
+    else:
+        repl_path = args.repl_path or DEFAULT_REPL_PATH
     
+    logger.info(f"Using {lake_path=} {repl_path=} {lean_workspace=}")
     logger.info(f"Initializing Lean4ServerScheduler with {args.max_concurrent} concurrent requests and {args.memory_limit}GB memory limit")
     scheduler = Lean4ServerScheduler(
         max_concurrent_requests=args.max_concurrent, 
@@ -119,8 +137,6 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
-        proofaug_index = [result.get("proofaug_index", None) for result in verification_results]
-        proofaug_ranges = [result.get("proofaug_ranges", None) for result in verification_results]
         proofaug_subst = [result.get("proofaug_subst", None) for result in verification_results]
 
         rewards = []
@@ -141,7 +157,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             if proofaug_body is None:
                 proofaug_codes.append(None)
             else:
-                assert isinstance(proofaug_body, str), f"Proofaug body is not a string: {proofaug_body}"
+                assert isinstance(proofaug_body, str)
                 code = codes[i] # type: str
                 sep_pos = code.find(DEF_SIGN)
                 proofaug_proof = proofaug_body.partition(DEF_SIGN)[2]
@@ -150,8 +166,6 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         response = RewardResponse(
             rewards=rewards,
             bodies=bodies,
-            proofaug_index=proofaug_index,
-            proofaug_ranges=proofaug_ranges,
             proofaug_subst=proofaug_subst,
             proofaug_codes=proofaug_codes,
             success_types=success_types,
@@ -179,6 +193,7 @@ if __name__ == "__main__":
     parser.add_argument("--lake_path", type=str, default=None, help="Lake executable path")
     parser.add_argument("--repl_path", type=str, default=None, help="Repl executable path")
     parser.add_argument("--lean_workspace", type=str, default=None, help="Lean workspace path")
+    parser.add_argument("--config_name", type=str, default="default", help="Lean environment config name, see configs/lean_env/")
     parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--log_level", type=str, default="info", help="debug, info, warning, error, critical")

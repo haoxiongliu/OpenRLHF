@@ -1,0 +1,4 @@
+lean_workspace: mathlib4
+repl_path: repl/.lake/build/bin/repl
+use_relative_path: true
+add_hammer_head: false
