@@ -82,8 +82,8 @@ def main():
         step = extract_step_number(model_path)
         inference_params = extract_inference_params(output_dir)
         
-        # Collect baseline data from kimina base model
-        if 'Kimina-Prover-Preview-Distill-1.5B' in model_path and step is None:
+        # Ad-hoc static baseline data
+        if 'hf_models' in model_path and step is None:
             n = entry.get('n', 'unknown')
             
             # Use output_dir directly for baseline distinction if inference_params is empty
