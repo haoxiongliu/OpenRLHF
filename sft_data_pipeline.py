@@ -120,7 +120,7 @@ def create_sft_dataset(seed_ds, model_outputs, args):
     count_total = 0
     for i, (data_item, outputs) in enumerate(zip(seed_ds, model_outputs)):
         for j, output in enumerate(outputs):
-            raise NotImplementedError("Current implementation is pset-messages ad-hoc. different from lean-workbook-messages.")
+            # pset-messages ad-hoc
             count_total += 1
             prompt_code = data_item['formal_statement']
             m_thinking = re.match(r"<think>(.*?)</think>", output, re.DOTALL)

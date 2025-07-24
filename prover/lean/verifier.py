@@ -204,6 +204,10 @@ class Lean4ServerProcess(mp.Process):
             ret_obj['command'] = command
             return ret_obj
         
+        except TimeoutError as e:
+            self._clean_init_repl()
+            raise e
+
         except Exception as e:
             self._clean_init_repl()
             raise ValueError(f"{e.__class__.__name__} {e}, resulting in repl restarted, during sending {command=}")
