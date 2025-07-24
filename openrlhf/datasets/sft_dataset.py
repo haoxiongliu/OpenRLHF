@@ -69,8 +69,12 @@ class SFTDataset(Dataset):
         if self.apply_chat_template:
             self.apply_chat_template = self.tokenizer.apply_chat_template
             tokenizer_chat_template = getattr(self.strategy.args, "tokenizer_chat_template", None)
+            tokenizer_chat_template_fp = getattr(self.strategy.args, "tokenizer_chat_template_fp", None)
             if tokenizer_chat_template:
                 self.tokenizer.chat_template = tokenizer_chat_template
+            elif tokenizer_chat_template_fp:
+                with open(tokenizer_chat_template_fp, 'r') as f:
+                    self.tokenizer.chat_template = f.read()
 
         # Parallel loading datasets
         processed_dataset = dataset.map(
