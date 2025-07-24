@@ -19,6 +19,7 @@ from typing import Optional
 from os.path import join
 
 DEF_SIGN=":="
+PROOF_START=":= by"
 HOME_DIR = os.path.expanduser('~')
 PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_LAKE_PATH = join(HOME_DIR, '.elan/bin/lake')
@@ -90,7 +91,7 @@ def load_jsonl_objects(input_path):
             objects.append(json.loads(line))
     return objects
 
-def write_as_jsonl(items: list[dict] | dict, filepath, mode='x', comple_nl=False, verbose=False):
+def write_as_jsonl(items: list[dict] | dict, filepath, mode='x', comple_nl=False, verbose=False, ensure_ascii=False):
     # in r+ mode, after read, the write will always start at the end 
     if dirpath:=os.path.dirname(filepath):
         os.makedirs(dirpath, exist_ok=True)
@@ -102,7 +103,7 @@ def write_as_jsonl(items: list[dict] | dict, filepath, mode='x', comple_nl=False
         items = [items]
     with open(filepath, mode) as f:
         for item in items:
-            f.write(json.dumps(item)+'\n')
+            f.write(json.dumps(item, ensure_ascii=ensure_ascii)+'\n')
     if verbose:
         print(f'{len(items)} items saved to {filepath}')
 
@@ -119,33 +120,25 @@ def extract_header(code: str) -> str:
             return "\n".join(lines[:i])
     return ""
 
-
-
-
 def merge_code(prompt_code: str, response_code: str) -> str:
     """
     Given a prompt and a response both including ```lean4\n...\n```, return the full code.
     should use the prompt header+statement and response theorem content
     """
-    if DEF_SIGN not in prompt_code or DEF_SIGN not in response_code:
+    if PROOF_START not in prompt_code or PROOF_START not in response_code:
         return ""
-    prefix = prompt_code.split(DEF_SIGN)[0]
-    sep_pos = response_code.find(DEF_SIGN)  # cannot use split since response may contain multiple DEF_SIGN in the proof
+    prefix = prompt_code.split(PROOF_START)[0]
+    sep_pos = response_code.find(PROOF_START)  # cannot use split since response may contain multiple DEF_SIGN in the proof
     return prefix + response_code[sep_pos:]
 
-
+# ybb. just remove all before </think>. if remaining part has <think>, remove all content
 def remove_think(text: str) -> str:
     # find the first <think> and last </think> (if no last </think>, remove all content)
-    think_start = text.find('<think>')
     think_end = text.rfind('</think>')
-    if think_end == -1:
-        # If no closing </think> found, remove everything from the first <think> onward
-        if think_start != -1:
-            text = text[:think_start]
-        else:
-            text = text
-    else:
-        text = text[:think_start] + text[think_end+len('</think>'):]
+    if think_end != -1:
+        text = text[think_end+len('</think>'):]
+    if '<think>' in text:
+        text = ""
     return text
 
 def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Optional[str]:
@@ -191,7 +184,7 @@ class ConcurrentJob(object):
             self._stage_cache = status
 
 def split_header_body(code, remove_comments=True):
-    """Split the code into header and body. empty string if no header found."""
+    """No strip, just split the code into header and body."""
     # TODO: add support for more keywords, or other heuristics
     # This is ad-hoc for proofnet dataset
     if remove_comments:

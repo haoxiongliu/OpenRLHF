@@ -25,7 +25,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.utils import extract_code, DEEPSEEK_HEADER, DEF_SIGN, remove_think, extract_code, merge_code, split_header_body
+from prover.utils import extract_code, DEEPSEEK_HEADER, DEF_SIGN, remove_think, extract_code, merge_code, split_header_body, PROOF_START
 from prover.constants import RECIPE2HAMMER_LIST
 from prover.logger import logger
 import torch
@@ -120,6 +120,7 @@ def create_sft_dataset(seed_ds, model_outputs, args):
     count_total = 0
     for i, (data_item, outputs) in enumerate(zip(seed_ds, model_outputs)):
         for j, output in enumerate(outputs):
+            raise NotImplementedError("Current implementation is pset-messages ad-hoc. different from lean-workbook-messages.")
             count_total += 1
             prompt_code = data_item['formal_statement']
             m_thinking = re.match(r"<think>(.*?)</think>", output, re.DOTALL)
@@ -131,11 +132,13 @@ def create_sft_dataset(seed_ds, model_outputs, args):
             if not full_code:
                 continue
             full_code = full_code.strip()
-            header, body = split_header_body(full_code) # this header just include informal prefix
+            header, body = split_header_body(full_code, remove_comments=False) # this header just include informal prefix
+            formal_statement = body.split(PROOF_START)[0]
             context = {
+                "problem": data_item['informal_statement'],
                 "header": header,
-                "informal_prefix": "",
-                "formal_statement": body,  # in pset-messages it is in fact full code. we only need theorem starts
+                "informal_prefix": f"/-- {data_item['informal_statement']}-/\n",
+                "formal_statement": formal_statement,  # in pset-messages it is in fact full code. we only need theorem starts
                 "thinking": thinking if not args.remove_think else "",
                 "code": full_code
             }
@@ -150,15 +153,15 @@ def create_sft_dataset(seed_ds, model_outputs, args):
             sft_example = {
                 'messages': final_messages,
                 'problem_id': data_item.get('problem_id', f'{i}'),
-                'formal_statement': body,
-                'informal_statement': data_item.get('informal_statement', ''),
                 'metadata': {
                     'timestamp': datetime.now().isoformat(),
                     'generated_by': args.model_path,
                 }
             }
+            sft_example.update(context)
             if args.save_assistant_response:
                 sft_example['metadata'].update({'assistant_response': output})
+            
             sft_data.append(sft_example)
             count_success += 1
             if args.expect_size and count_success >= args.expect_size:

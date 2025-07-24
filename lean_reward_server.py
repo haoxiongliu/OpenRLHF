@@ -1,8 +1,6 @@
 import logging
 import argparse
-import datetime
 import uuid
-from pathlib import Path
 from fastapi import FastAPI, Request, Depends
 from typing import Annotated
 import uvicorn
@@ -18,8 +16,8 @@ from os.path import join
 from prover.lean.verifier import Lean4ServerScheduler
 from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN
 from prover.agent_utils import RewardResponse, RewardRequest
+from prover.logger import logger, set_log_level
 
-logger = logging.getLogger("lean_reward_server")
 
 def create_app(args: argparse.Namespace) -> FastAPI:
     # Initialize scheduler here instead of in Config class
@@ -197,26 +195,15 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
     parser.add_argument("--log_level", type=str, default="info", help="debug, info, warning, error, critical")
-    parser.add_argument("--use_log_file", action="store_true", help="Use log file")
+
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
     parser.add_argument("--pty_restart_count", type=int, default=100, help="Pty restart count")
     parser.add_argument("--step_timeout", type=int, default=180, help="default step timeout for the lean server")
     args = parser.parse_args()
     
-    log_level = getattr(logging, args.log_level.upper())
-    logs_dir = Path("logs")
-    logs_dir.mkdir(exist_ok=True)
-    log_file = logs_dir / f"lean_reward_server_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler()
-        ] if args.use_log_file else [logging.StreamHandler()]
-    )
+    # Set log level through prover.logger
+    set_log_level(args.log_level.upper())
     
     logger.info(f"Starting server with config: {vars(args)}")
     

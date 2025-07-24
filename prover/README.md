@@ -2,6 +2,17 @@
 
 This is a module for the Lean prover. You can evaluate, or start a lean reward model server.
 
+REMEMBER to 
+```bash
+lake update Hammer
+lake update
+lake build Hammer
+lake build
+```
+for lean-gym to get zipperposition executable. Lean will not automatically build this target
+
+
+
 
 ## Prover Logger
 

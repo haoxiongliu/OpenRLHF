@@ -101,7 +101,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
 
             # note that kimina tactic block can be repeated single tactics
             # should remove all extra thinking after the final tactic block for correct ones
-            assert proofaug_think_mode in ["replace_v1", "remove"], f"Invalid proofaug_think_mode: {proofaug_think_mode}"
+            assert proofaug_think_mode in ["replace_v1", "remove", "remain"], f"Invalid proofaug_think_mode: {proofaug_think_mode}"
             if proofaug_think_mode == "replace_v1":
                 for rng, pa_block in proofaug_subst.items():
                     start, end = map(int, rng.split(':'))
@@ -113,6 +113,8 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                             modified_think = modified_think.replace(tactic_block, pa_block)
             elif proofaug_think_mode == "remove":
                 modified_think = ""
+            elif proofaug_think_mode == "remain":
+                pass # maintain the original think part
 
             lean4_pattern = r'```lean4\s*\n(.*?)\n```'
             def replace_lean4_block(match):
