@@ -247,7 +247,18 @@ class Lean4ServerProcess(mp.Process):
             
             header, body = split_header_body(code, remove_comments=True)
             init_env = None
-            if header is not None:
+
+            if hammer_recipe:
+                hammer_list = RECIPE2HAMMER_LIST[hammer_recipe]
+            if not hammer_list:
+                hammers = [HINT_DICT[hammer_type]] # can be None, for no hammer ablation. remember to check.
+            else:
+                hammers = [HINT_DICT[hammer_list]] if isinstance(hammer_list, str) else [HINT_DICT[ht] for ht in hammer_list]
+            hammers = [h for h in hammers if h is not None]
+            if any("hammer" in h for h in hammers):
+                header = "import Hammer\n" + header
+                init_env = self._initialize_header_env(header)
+            elif header is not None:
                 init_env = self._initialize_header_env(header)
 
             if (not proofaug) or pa_with_orig:
@@ -274,18 +285,6 @@ class Lean4ServerProcess(mp.Process):
 
             if proofaug and not complete:
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
-
-                if hammer_recipe:
-                    hammer_list = RECIPE2HAMMER_LIST[hammer_recipe]
-                if not hammer_list:
-                    hammers = [HINT_DICT[hammer_type]] # can be None, for no hammer ablation. remember to check.
-                else:
-                    hammers = [HINT_DICT[hammer_list]] if isinstance(hammer_list, str) else [HINT_DICT[ht] for ht in hammer_list]
-                hammers = [h for h in hammers if h is not None]
-                if any("hammer" in h for h in hammers):
-                    header = "import Hammer\n" + header
-                    init_env = self._initialize_header_env(header)
-
                 body = body.replace("all_goals ", "")
                 prop_struct = ProposalStructure(body)
                 block = prop_struct.root.parts[0]
