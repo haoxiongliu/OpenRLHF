@@ -177,7 +177,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
     return app
 
 def signal_handler(sig, frame):
-    logger.info("Received interrupt signal, shutting down gracefully...")
+    # logger.info("Received interrupt signal, shutting down gracefully...")
     sys.exit(0)
 
 if __name__ == "__main__":
