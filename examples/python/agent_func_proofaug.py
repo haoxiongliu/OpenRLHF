@@ -6,7 +6,7 @@ import aiohttp
 import asyncio
 import re
 from copy import deepcopy
-from prover.agent_utils import RewardResponse, RewardRequest, split_header_body
+from prover.agent_utils import RewardResponse, RewardRequest
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
