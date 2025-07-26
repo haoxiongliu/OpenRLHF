@@ -1,0 +1,9 @@
+proofaug: true
+hammer_recipe: mixh0_v3
+proofaug_ans_subst: true
+proofaug_think_mode: remove
+code_only: true
+
+remote_timeout: 300
+total_timeout: 240
+step_timeout: 180

@@ -6,7 +6,7 @@ import aiohttp
 import asyncio
 import re
 from copy import deepcopy
-from prover.agent_utils import RewardResponse, RewardRequest
+from prover.agent_utils import RewardResponse, RewardRequest, split_header_body
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
@@ -73,6 +73,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     proofaug = proofaug_config.get("proofaug", False)
     proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
     proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
+    code_only = proofaug_config.get("code_only", False)
 
     try:
         ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
@@ -81,15 +82,19 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     reward = ret_obj.rewards[0]
     proofaug_code = ret_obj.proofaug_codes[0]
     success_type = ret_obj.success_types[0]
+    header = ret_obj.headers[0]
+    body = ret_obj.bodies[0]
 
-    # find code block in action and replace it with proofaug_proof
+    if reward > 0.0 and code_only:
+        action = f"```lean4\n{header}{body}\n```"
+
     if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
         from prover.agent_utils import remove_indent
         think_start = action.find('<think>')
         think_end = action.rfind('</think>')
         body = ret_obj.bodies[0]
         proofaug_subst = ret_obj.proofaug_subst[0]
-
+        
         if think_start != -1 and think_end != -1 and proofaug_think_mode:
             # Keep think part unchanged, only replace lean4 code blocks outside think part
             before_think = action[:think_start]
@@ -115,7 +120,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                 modified_think = ""
             elif proofaug_think_mode == "remain":
                 pass # maintain the original think part
-
+            
             lean4_pattern = r'```lean4\s*\n(.*?)\n```'
             def replace_lean4_block(match):
                 return f'```lean4\n{proofaug_code}\n```'

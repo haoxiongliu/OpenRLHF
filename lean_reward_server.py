@@ -14,7 +14,7 @@ from os.path import join
 
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN
+from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN, split_header_body
 from prover.agent_utils import RewardResponse, RewardRequest
 from prover.logger import logger, set_log_level
 
@@ -115,6 +115,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     else:
                         code = prefix + code_in_response[sep_pos:]
             codes.append(code)
+        headers = [split_header_body(code, remove_comments=False)[0] for code in codes]
         tasks = [{
             "code": code,
             "proofaug": reward_request.proofaug,
@@ -136,6 +137,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
         proofaug_subst = [result.get("proofaug_subst", None) for result in verification_results]
+        
 
         rewards = []
         for i in range(n):
@@ -164,6 +166,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         response = RewardResponse(
             rewards=rewards,
             bodies=bodies,
+            headers=headers,
             proofaug_subst=proofaug_subst,
             proofaug_codes=proofaug_codes,
             success_types=success_types,

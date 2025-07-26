@@ -160,6 +160,13 @@ def test_example_simple():
     test_cases = [
         {
             "name": "mathd_algebra_114_mixh0_v1",
+            "code": 'import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\ntheorem foo: 2+3=5:= by \n  have h₀ (a: ℕ): a+a = 2*a := by\n    simp\n  simp',
+            "expected_success_type": "proofaug",
+            "hammer_list": ['linarith', 'leanhammer_0'],
+            "step_timeout": 180,
+        },
+        {
+            "name": "mathd_algebra_114_mixh0_v1",
             "code": 'import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\ntheorem mathd_algebra_114 (a : ℝ) (h₀ : a = 8) :\n    (16 * (a ^ 2) ^ ((1 : ℝ) / 3)) ^ ((1 : ℝ) / 3) = 4 := by \n  rw [h₀]\n  have h1 : (8 : ℝ) ^ 2 = (64 : ℝ) := by norm_num\n  have h2 : (64 : ℝ) = (4 : ℝ) ^ 3 := by norm_num\n  have h3 : ((8 : ℝ) ^ 2 : ℝ) ^ ((1 : ℝ) / 3) = (4 : ℝ) := by\n    rw [show (8 : ℝ) ^ 2 = (64 : ℝ) by norm_num]\n    rw [h2]\n    have h4 : ((4 : ℝ) ^ 3 : ℝ) ^ ((1 : ℝ) / 3) = (4 : ℝ) := by\n      have h5 : ((4 : ℝ) ^ 3 : ℝ) ^ ((1 : ℝ) / 3) = (4 : ℝ) ^ (3 * (1 / 3 : ℝ)) := by\n        rw [← Real.rpow_natCast, ← Real.rpow_mul]\n        ring\n        all_goals norm_num\n      rw [h5]\n      norm_num\n    rw [h4]\n  have h5 : (16 * ((4 : ℝ) ) ) ^ ((1 : ℝ) / 3) = (4 : ℝ) := by\n    have h6 : (16 * (4 : ℝ)) = (64 : ℝ) := by norm_num\n    rw [h6]\n    have h7 : ((64 : ℝ) ) ^ ((1 : ℝ) / 3) = (4 : ℝ) := by\n      have h8 : ((64 : ℝ) ) ^ ((1 : ℝ) / 3) = (4 : ℝ) := by\n        have h9 : (64 : ℝ) = (4 : ℝ) ^ (3 : ℝ) := by\n          norm_num\n        rw [h9]\n        have h10 : (( (4 : ℝ) ^ (3 : ℝ) ) ) ^ ((1 : ℝ) / 3) = (4 : ℝ) ^ (3 * (1 / 3 : ℝ)) := by\n          rw [← Real.rpow_natCast, ← Real.rpow_mul]\n          ring\n          all_goals norm_num\n        rw [h10]\n        norm_num\n      rw [h8]\n    rw [h7]\n  rw [h3]\n  rw [h5]',
             "expected_success_type": "proofaug",
             "hammer_list": ['simp_all', 'field_simp', 'linarith', 'leanhammer_0',  'norm_num', 'ring_nf', 'omega'],

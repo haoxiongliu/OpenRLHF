@@ -246,6 +246,7 @@ class Lean4ServerProcess(mp.Process):
                 raise NotImplementedError("non_repl is not implemented yet")
             
             header, body = split_header_body(code, remove_comments=True)
+            orig_header = header
             init_env = None
 
             if hammer_recipe:
@@ -356,24 +357,8 @@ class Lean4ServerProcess(mp.Process):
                             break
                     
                     # check whether the current block is completed by checking the number of goals
-                    current_goals = ps2goals[ps]
-                    assert len(current_goals) >= len(init_goals), f"Observe {len(current_goals)=} < {len(init_goals)=} in {block=} at {part=}"
-                    if len(current_goals) == len(init_goals):
-                        block.state = BlockState.COMPLETED
-                        if block.level == 0:
-                            assert result.get('proofStatus', None) == 'Completed', f"Observe {result.get('proofStatus', None)=} != 'Completed' in {block=}"
-                            verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
-                            result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
-                            errors = compile_errors(result_verify)
-                            if not is_complete(result_verify, block.proofaug_content):
-                                proofaug_code = header + block.proofaug_content
-                                logger.warning(f"Reconstructed {proofaug_code=} is not complete with {result_verify=}, probably bug of proofaug or repl with {errors=}")
-                                if require_reconstruct:
-                                    block.state = BlockState.NO_RECONSTRUCT
-                            else:
-                                logger.debug(f"Verified the reconstructed proof {block.proofaug_content=}")
-                                result['proofaug_body'] = block.proofaug_content 
-                    elif len(current_goals) > len(init_goals): # proofaug
+                    assert len(ps2goals[ps]) >= len(init_goals), f"Observe {len(ps2goals[ps])=} < {len(init_goals)=} in {block=} at {part=}"
+                    if len(ps2goals[ps]) > len(init_goals): # proofaug
                         ps_cands = sorted(set([ps, sttm_ps]), reverse=True)
                         cand_combs = list(itertools.product(ps_cands, hammers))
                         # removed the cand_i = len(cand_combs) - 1 case since cand_combs could be empty
@@ -381,41 +366,60 @@ class Lean4ServerProcess(mp.Process):
                             cmd = to_command(hammer, proofState=ps_cand, sorries=sorry_mode)
                             result = self._send_command_to_repl(cmd, timeout=step_timeout)
                             hammer_count += 1
-                            if not compile_errors(result):
-                                ps_new = result['proofState']
-                                ps2goals[ps_new] = result['goals']
-                                if len(ps2goals[ps_new]) == len(init_goals):
-                                    ps = ps_new
-                                    sttm_indent = n_indent(sttm_part.content)
-                                    last_part = block.parts[rest_part_index]
-                                    last_indent = n_indent(last_part.content)
-                                    if "hammer" in hammer:
-                                        hammer_message = result["messages"][0]["data"]
-                                        hammer_output = hammer_message.split("Try this:\n")[1] if "hammer" in hammer else hammer
-                                        assert hammer_output[0] != "\n"
-                                        if ps_cand == sttm_ps:
-                                            connect = "\n" if hammer_output.startswith(" ") else " "
-                                            hammer_output = connect + hammer_output
-                                            hammer_output = hammer_output.replace("\n", "\n" + " "*sttm_indent)
-                                            sttm_snippet = Snippet(block.statement + ':= by' + hammer_output)
-                                            block._proofaug_parts = [sttm_snippet]
-                                        else:
-                                            prefix = " "*sttm_indent if hammer_output.startswith(" ") else " "*last_indent
-                                            hammer_output = hammer_output.replace("\n", "\n" + prefix)
-                                            hammer_snippet = Snippet(prefix + hammer_output)
-                                            block._proofaug_parts = block.parts[:rest_part_index+1] + [hammer_snippet]
+                            if compile_errors(result):
+                                continue
+                            ps_new = result['proofState']
+                            ps2goals[ps_new] = result['goals']
+                            if len(ps2goals[ps_new]) == len(init_goals):
+                                ps = ps_new
+                                sttm_indent = n_indent(sttm_part.content)
+                                last_part = block.parts[rest_part_index]
+                                last_indent = n_indent(last_part.content)
+                                if "hammer" in hammer:
+                                    hammer_message = result["messages"][0]["data"]
+                                    hammer_output = hammer_message.split("Try this:\n")[1] if "hammer" in hammer else hammer
+                                    assert hammer_output[0] != "\n"
+                                    if ps_cand == sttm_ps:
+                                        connect = "\n" if hammer_output.startswith(" ") else " "
+                                        hammer_output = connect + hammer_output
+                                        hammer_output = hammer_output.replace("\n", "\n" + " "*sttm_indent)
+                                        sttm_snippet = Snippet(block.statement + ':= by' + hammer_output)
+                                        block._proofaug_parts = [sttm_snippet]
                                     else:
-                                        if ps_cand == sttm_ps:
-                                            sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
-                                            block._proofaug_parts = [sttm_snippet]
-                                        else:
-                                            hammer_snippet = Snippet(" "*last_indent + hammer)
-                                            block._proofaug_parts = block.parts[:rest_part_index+1] + [hammer_snippet]
-                                    block.state = BlockState.COMPLETED
-                                    proofaug_subst[f"{block.start_line}:{block.end_line}"] = block.proofaug_content
-                                    return ps, result
-                        block.state = BlockState.SORRY_FAILED
-                        ps = init_ps # set to the state before this block
+                                        prefix = " "*sttm_indent if hammer_output.startswith(" ") else " "*last_indent
+                                        hammer_output = hammer_output.replace("\n", "\n" + prefix)
+                                        hammer_snippet = Snippet(prefix + hammer_output)
+                                        block._proofaug_parts = block.parts[:rest_part_index+1] + [hammer_snippet]
+                                else:
+                                    if ps_cand == sttm_ps:
+                                        sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
+                                        block._proofaug_parts = [sttm_snippet]
+                                    else:
+                                        hammer_snippet = Snippet(" "*last_indent + hammer)
+                                        block._proofaug_parts = block.parts[:rest_part_index+1] + [hammer_snippet]
+                                block.state = BlockState.COMPLETED
+                                proofaug_subst[f"{block.start_line}:{block.end_line}"] = block.proofaug_content
+                                break
+                        if block.state != BlockState.COMPLETED:
+                            # block state is necessary to indicate whether this block succeeds
+                            block.state = BlockState.SORRY_FAILED 
+                            ps = init_ps # set to the state before this block
+                            return ps, result
+                    if len(ps2goals[ps]) == len(init_goals):
+                        block.state = BlockState.COMPLETED
+                        if block.level == 0:
+                            assert result.get('proofStatus', None) == 'Completed', f"Observe {result.get('proofStatus', None)=} != 'Completed' in {block=}"
+                            verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
+                            result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
+                            errors = compile_errors(result_verify)
+                            if not is_complete(result_verify, block.proofaug_content):
+                                proofaug_code = orig_header + block.proofaug_content
+                                logger.warning(f"Reconstructed {proofaug_code=} is not complete with {result_verify=}, probably bug of proofaug or repl with {errors=}")
+                                if require_reconstruct:
+                                    block.state = BlockState.NO_RECONSTRUCT
+                            else:
+                                logger.debug(f"Verified the reconstructed proof {block.proofaug_content=}")
+                                result['proofaug_body'] = block.proofaug_content 
                     return ps, result
 
                 # proofaug_content cannot indicate the type. it can be the original code.
@@ -430,7 +434,7 @@ class Lean4ServerProcess(mp.Process):
                     "state": block.state,
                     "complete": complete,
                     "errors": errors,
-                    "header": header,
+                    "header": orig_header,
                     "body": block.content,
                     "success_type": success_type,
                     "proofaug_subst": proofaug_subst,
