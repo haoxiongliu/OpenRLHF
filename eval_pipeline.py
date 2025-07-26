@@ -296,6 +296,7 @@ def main(args):
         json.dump(result, f, indent=4)
     print(f"{summary_path}")
     df_grp.reset_index()[["name", "correct"]].to_csv(summary_path.replace(".json", ".csv"), index=False, header=True, sep='\t', quoting=1, na_rep='Missing')
+    result.update({"compilation_summary": summary_path})
     print(result)
 
 

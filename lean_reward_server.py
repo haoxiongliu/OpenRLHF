@@ -115,7 +115,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     else:
                         code = prefix + code_in_response[sep_pos:]
             codes.append(code)
-        headers = [split_header_body(code, remove_comments=False)[0] for code in codes]
+        headers = [split_header_body(code, remove_comments=False)[0] if code is not None else "" for code in codes]
         tasks = [{
             "code": code,
             "proofaug": reward_request.proofaug,
