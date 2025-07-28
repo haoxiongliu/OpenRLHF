@@ -147,7 +147,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             modified_after = re.sub(lean4_pattern, replace_lean4_block, after_think, flags=re.DOTALL)
             
             ret_action = before_think + modified_think + modified_after
-            logger.debug(f"proofaug modification for {action=} => {ret_action=}")
+            logger.info(f"proofaug modification for {action=} => {ret_action=}")
         else:
             # No think tags, replace all lean4 code blocks
             lean4_pattern = r'```lean4\s*\n(.*?)\n```'
