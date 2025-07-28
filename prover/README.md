@@ -11,8 +11,16 @@ lake build
 ```
 for lean-gym to get zipperposition executable. Lean will not automatically build this target
 
+## Installation
+```bash
+# install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# git clone
+git clone https://github.com/haoxiongliu/OpenRLHF.git
 
 
+```
 
 ## Prover Logger
 
