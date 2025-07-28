@@ -13,11 +13,35 @@ for lean-gym to get zipperposition executable. Lean will not automatically build
 
 ## Installation
 ```bash
-# install uv
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
 # git clone
 git clone https://github.com/haoxiongliu/OpenRLHF.git
+git submodule update --init --recursive
+
+# install uv
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv venv --python=3.12
+uv pip install -r requirements_prover.txt
+
+# install lean
+curl https://elan.lean-lang.org/elan-init.sh -sSf | sh
+cd lean-gym-repl
+lean --version
+lake update
+lake build
+cd ..
+
+# build lean-gym
+cd lean-gym
+lake update
+lake build Hammer
+lake build
+cd ..
+
+# start server
+python lean_reward_server.py --host
+
+# test
+python 
 
 
 ```

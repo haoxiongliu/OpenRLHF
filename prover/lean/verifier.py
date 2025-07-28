@@ -245,7 +245,8 @@ class Lean4ServerProcess(mp.Process):
             if non_repl:
                 raise NotImplementedError("non_repl is not implemented yet")
             
-            header, body = split_header_body(code, remove_comments=True)
+            header, body = split_header_body(code, remove_comments=True)    # this header logic is redundant?
+            orig_body = body
             orig_header = header
             init_env = None
 
@@ -278,8 +279,8 @@ class Lean4ServerProcess(mp.Process):
                     "messages": result.get('messages', []),
                     "system_errors": [],
                     "ast": lean4_parser(code, result['ast']) if 'ast' in result else {},
-                    "header": header,
-                    "body": body,
+                    "header": orig_header,
+                    "body": orig_body,
                     "complete": complete,
                     # "verified_code": code,  # Keep original code for reference
                 }
@@ -419,7 +420,9 @@ class Lean4ServerProcess(mp.Process):
                                     block.state = BlockState.NO_RECONSTRUCT
                             else:
                                 logger.debug(f"Verified the reconstructed proof {block.proofaug_content=}")
-                                result['proofaug_body'] = block.proofaug_content 
+                            result['proofaug_body'] = block.proofaug_content
+                            result['pa_depth'] = ProposalStructure(block.proofaug_content).depth
+
                     return ps, result
 
                 # proofaug_content cannot indicate the type. it can be the original code.
@@ -435,7 +438,9 @@ class Lean4ServerProcess(mp.Process):
                     "complete": complete,
                     "errors": errors,
                     "header": orig_header,
-                    "body": block.content,
+                    "body": orig_body,
+                    "depth": prop_struct.depth,
+                    "pa_depth": result.get('pa_depth', None),
                     "success_type": success_type,
                     "proofaug_subst": proofaug_subst,
                     "proofaug_body": result.get('proofaug_body', None),

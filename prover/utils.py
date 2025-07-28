@@ -12,7 +12,7 @@ from copy import deepcopy
 import re
 import random
 import pandas as pd
-from datasets import load_dataset, Dataset
+# from datasets import load_dataset, Dataset
 import glob
 import csv
 from typing import Optional
@@ -511,14 +511,6 @@ def get_cumulative_pass(
     }
 
 
-def dataset2prompt_ds(jsonl_path: str) -> Dataset:
-    """
-    Convert a local jsonl file to a prompt dataset.
-    """
-    ds = load_dataset("json", data_files=jsonl_path)["train"]
-    format_str = "```lean4\n{header}{informal_prefix}{formal_statement}"
-    new_ds = ds.map(lambda x: {"prompt": format_str.format(header=x["header"], informal_prefix=x["informal_prefix"], formal_statement=x["formal_statement"])})
-    return new_ds
 
 def result2leanfiles(
     compilation_json: str = 'results/minif2f/Kimina-Prover-Preview-Distill-1.5B-n1-0422/code_compilation.json', 

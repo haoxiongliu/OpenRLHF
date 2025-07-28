@@ -5,3 +5,5 @@ numpy
 easydict
 pandas
 matplotlib
+pyyaml
+fire

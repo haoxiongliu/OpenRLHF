@@ -7,6 +7,13 @@ import asyncio
 import re
 from copy import deepcopy
 from prover.agent_utils import RewardResponse, RewardRequest
+import logging
+from os.path import join
+
+logger = logging.getLogger(__name__)
+# set logger file
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.FileHandler(join("logs", "agent_func_proofaug.log")))
 
 REMOTE_RM_URL = "http://localhost:5000/reward"  # 替换为你的远程奖励模型URL
 
@@ -72,6 +79,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     assert proofaug_config is not None, "proofaug_config is required"
     proofaug = proofaug_config.get("proofaug", False)
     proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
+    subst_rule = proofaug_config.get("subst_rule", None) # keep_depth
     proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
     code_only = proofaug_config.get("code_only", False)
 
@@ -80,10 +88,15 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     except asyncio.TimeoutError:
         return {"rewards": 0.0, "scores": 0.0, "next_observation": observation + action, "done": True, "extra_logs": {}}
     reward = ret_obj.rewards[0]
+    orig_reward = ret_obj.orig_rewards[0]
     proofaug_code = ret_obj.proofaug_codes[0]
     success_type = ret_obj.success_types[0]
     header = ret_obj.headers[0]
     body = ret_obj.bodies[0]
+    depth = ret_obj.depths[0]
+    pa_depth = ret_obj.pa_depths[0]
+
+    
 
     if reward > 0.0 and code_only:
         action = f"```lean4\n{header}{body}\n```"
@@ -93,9 +106,15 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         think_start = action.find('<think>')
         think_end = action.rfind('</think>')
         body = ret_obj.bodies[0]
-        proofaug_subst = ret_obj.proofaug_subst[0]
+        proofaug_subst = ret_obj.proofaug_substs[0]
         
-        if think_start != -1 and think_end != -1 and proofaug_think_mode:
+        if subst_rule == "ge2depth" and pa_depth < 2:
+            logger.info(f"{subst_rule=}: {pa_depth} < 2 => keep the original action {action=} rather than using {proofaug_code=}")
+            ret_action = action
+        elif subst_rule == "keep_depth" and pa_depth < depth:
+            logger.info(f"{subst_rule=}: {pa_depth} < {depth} => keep the original action {action=} rather than using {proofaug_code=}")
+            ret_action = action
+        elif think_start != -1 and think_end != -1 and proofaug_think_mode:
             # Keep think part unchanged, only replace lean4 code blocks outside think part
             before_think = action[:think_start]
             think_part = action[think_start:think_end+len('</think>')]
@@ -128,6 +147,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             modified_after = re.sub(lean4_pattern, replace_lean4_block, after_think, flags=re.DOTALL)
             
             ret_action = before_think + modified_think + modified_after
+            logger.debug(f"proofaug modification for {action=} => {ret_action=}")
         else:
             # No think tags, replace all lean4 code blocks
             lean4_pattern = r'```lean4\s*\n(.*?)\n```'
@@ -145,5 +165,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         "scores": reward,  # Scores for dynamic filtering (0-1 reward)
         "next_observation": next_observation,  # The updated observation for vLLM in next step
         "done": True,  # Boolean indicating if the episode is complete
-        "extra_logs": {},  # Additional logging information
+        "extra_logs": {
+            "orig_rewards": orig_reward,
+        },  # Additional logging information
     }

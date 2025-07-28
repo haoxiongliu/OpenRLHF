@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Training Curves Analysis for summary.log with Error Bars
+r"""Training Curves Analysis for summary.log with Error Bars
 统计summary.log里的，对同一训练同义hammer相同的n，绘制按步数的曲线图
 按model分组，同model同n同hammer画在一条曲线上
 只画有step的模型，并将hammer列表转换为recipe名字
@@ -16,7 +15,7 @@ import ast
 from os.path import basename
 
 def remove_seed_from_params(inference_params):
-    """Remove seed information (-s\d+) from inference parameters"""
+    r"""Remove seed information (-s\d+) from inference parameters"""
     if not inference_params:
         return inference_params
     

@@ -137,17 +137,21 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
-        proofaug_subst = [result.get("proofaug_subst", None) for result in verification_results]
-        
+        proofaug_substs = [result.get("proofaug_subst", None) for result in verification_results]
+        pa_depths = [result.get("pa_depth", None) for result in verification_results]
+        depths = [result.get("depth", None) for result in verification_results]
 
         rewards = []
+        orig_rewards = []
         for i in range(n):
             verify_time = verify_times[i] if verify_times[i] is not None else 0.0
             if verification_results[i].get("complete", False):
                 reward = 1.0 - reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
             else:
                 reward = 0.0
+            orig_reward = 1.0 if success_types[i] in ["pa_orig", "original"] else 0.0
             rewards.append(reward)
+            orig_rewards.append(orig_reward)
 
         i = random.randint(0, n - 1)
         average_reward = sum(rewards) / len(rewards)
@@ -166,13 +170,16 @@ def create_app(args: argparse.Namespace) -> FastAPI:
 
         response = RewardResponse(
             rewards=rewards,
+            orig_rewards=orig_rewards,
             bodies=bodies,
             headers=headers,
-            proofaug_subst=proofaug_subst,
+            proofaug_substs=proofaug_substs,
             proofaug_codes=proofaug_codes,
             success_types=success_types,
             verify_times=verify_times,
             errorss=errorss,
+            pa_depths=pa_depths,
+            depths=depths,
         )
         logger.debug(f"\n[REQ-{request_id}] {response}")
 

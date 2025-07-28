@@ -61,8 +61,7 @@ theorem mathd_algebra_114 (a : ℝ) (h₀ : a = 8) :
 
 from __future__ import annotations
 from typing import Optional
-from prover.utils import remove_lean_comments, statement_starts, analyzable, n_indent
-import re
+from prover.utils import remove_lean_comments, statement_starts, analyzable, n_indent, split_header_body
 from enum import StrEnum
 
 
@@ -154,13 +153,14 @@ class Block(object):
 
 
 class ProposalStructure(object):
-    def __init__(self, proposal: str):
-        self.proposal = proposal
+    def __init__(self, body: str):
+        self.body = body if statement_starts(body) else split_header_body(body)[1]
         self.root = None
-        self._analyze(remove_lean_comments(proposal, normalize=False))
+        self.depth = None
+        self._analyze(remove_lean_comments(self.body, normalize=False))
 
-    def _analyze(self, proposal: str):
-        lines = proposal.split("\n")
+    def _analyze(self, body: str):
+        lines = body.split("\n")
         # determine the blocks by finding 'have' and ':=' and by the indentation
         indent2level = {}   # init block level is -1
         block_stack = [Block(parent=None)] # type: list[Block]
@@ -219,7 +219,8 @@ class ProposalStructure(object):
         while block_stack:
             top_block = block_stack.pop()
             top_block.end_line = len(lines) # start:end, so not minus 1
-        
+        levels = indent2level.values()
+        self.depth = max(levels) if levels else -1
     
     def _traverse_blocks(self, block: Block):
         # we know that things happen in this block.
