@@ -376,12 +376,13 @@ class Lean4ServerProcess(mp.Process):
                                 sttm_indent = n_indent(sttm_part.content)
                                 last_part = block.parts[rest_part_index]
                                 last_indent = n_indent(last_part.content)
+                                # quite ad-hoc to the v4.20.0 version LeanHammer output message design.
                                 if "hammer" in hammer:
                                     hammer_message = result["messages"][0]["data"]
                                     hammer_output = hammer_message.split("Try this:\n")[1] if "hammer" in hammer else hammer
                                     assert hammer_output[0] != "\n"
                                     if ps_cand == sttm_ps:
-                                        connect = "\n" if hammer_output.startswith(" ") else " "
+                                        connect = "\n" if hammer_output.startswith(" ") else "\n  "
                                         hammer_output = connect + hammer_output
                                         hammer_output = hammer_output.replace("\n", "\n" + " "*sttm_indent)
                                         sttm_snippet = Snippet(block.statement + ':= by' + hammer_output)
@@ -393,7 +394,7 @@ class Lean4ServerProcess(mp.Process):
                                         block._proofaug_parts = block.parts[:rest_part_index+1] + [hammer_snippet]
                                 else:
                                     if ps_cand == sttm_ps:
-                                        sttm_snippet = Snippet(block.statement + ':= by ' + hammer)
+                                        sttm_snippet = Snippet(block.statement + ':= by\n  ' + " "*sttm_indent + hammer)
                                         block._proofaug_parts = [sttm_snippet]
                                     else:
                                         hammer_snippet = Snippet(" "*last_indent + hammer)

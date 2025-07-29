@@ -102,6 +102,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             elif mode == "chat":
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
+                if not prompt:
+                    logger.warning(f"No prompt found for chat mode {query=}.")
                 code_in_prompt = extract_code(prompt)
                 response = query[len(prompt):]
                 code_in_response = extract_code(response, omit_think=True)
