@@ -90,7 +90,15 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     try:
         ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
     except asyncio.TimeoutError:
-        return {"rewards": 0.0, "scores": 0.0, "next_observation": observation + action, "done": True, "extra_logs": {}}
+        logger.info(f"TimeoutError: {observation+action=}")
+        return {"rewards": 0.0, 
+                "scores": 0.0, 
+                "next_observation": observation + action, 
+                "done": True, 
+                "extra_logs": {
+                    "orig_rewards": 0.0,
+                }
+            }
     reward = ret_obj.rewards[0]
     orig_reward = ret_obj.orig_rewards[0]
     proofaug_code = ret_obj.proofaug_codes[0]
@@ -99,8 +107,6 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     body = ret_obj.bodies[0]
     depth = ret_obj.depths[0]
     pa_depth = ret_obj.pa_depths[0]
-
-    
 
     if reward > 0.0 and code_only:
         action = f"```lean4\n{header}{body}\n```"
@@ -161,6 +167,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                 return f'```lean4\n{proofaug_code}\n```'
             
             ret_action = re.sub(lean4_pattern, replace_lean4_block, action, flags=re.DOTALL)
+            logger.info(f"proofaug modification for {action=} => {ret_action=}")
     else:
         ret_action = action
 

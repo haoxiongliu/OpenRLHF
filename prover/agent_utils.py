@@ -34,7 +34,7 @@ class RewardResponse(BaseModel):
     when RewardResponse(**dict) receive extra fields, it will be ignored.
     """
     rewards: list[float]
-    orig_rewards: list[float | None] = [None]
+    orig_rewards: list[float] = [0.0]
     bodies: list[str | None] = [None]
     headers: list[str | None] = [None]
     proofaug_substs: list[dict | None] = [None]
