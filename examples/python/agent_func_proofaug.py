@@ -86,6 +86,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     subst_rule = proofaug_config.get("subst_rule", None) # keep_depth
     proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
     code_only = proofaug_config.get("code_only", False)
+    part_reward = proofaug_config.get("part_reward", 0.5)
 
     try:
         ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
@@ -119,11 +120,11 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         proofaug_subst = ret_obj.proofaug_substs[0]
         
         if subst_rule == "ge2depth" and (pa_depth < min(2, depth)):
-            reward = 0.5
+            reward = part_reward
             logger.info(f"{subst_rule=}: {pa_depth=} < min(2, {depth=}) => keep the original action {action=} rather than using {proofaug_code=}")
             ret_action = action
         elif subst_rule == "keep_depth" and pa_depth < depth:
-            reward = 0.5
+            reward = part_reward
             logger.info(f"{subst_rule=}: {pa_depth=} < {depth=} => keep the original action {action=} rather than using {proofaug_code=}")
             ret_action = action
         elif think_start != -1 and think_end != -1 and proofaug_think_mode:

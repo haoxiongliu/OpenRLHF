@@ -34,6 +34,8 @@ def train(args):
     )
     # configure tokenizer
     tokenizer = get_tokenizer(args.pretrain, model.model, "right", strategy, use_fast=not args.disable_fast_tokenizer)
+    if args.custom_eos_id:
+        tokenizer.eos_token_id = int(args.custom_eos_id)
     strategy.print(model)
 
     # gradient_checkpointing
@@ -237,6 +239,8 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer_chat_template", type=str, default=None)
     parser.add_argument("--tokenizer_chat_template_fp", type=str, default=None)
     parser.add_argument("--max_len", type=int, default=2048, help="Max tokens for the samples")
+
+    parser.add_argument("--custom_eos_id", type=int, default=None)
 
     # wandb parameters
     parser.add_argument("--use_wandb", type=str, default=None)
