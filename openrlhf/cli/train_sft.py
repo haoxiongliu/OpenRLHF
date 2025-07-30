@@ -35,7 +35,7 @@ def train(args):
     # configure tokenizer
     tokenizer = get_tokenizer(args.pretrain, model.model, "right", strategy, use_fast=not args.disable_fast_tokenizer)
     if args.custom_eos_id:
-        tokenizer.eos_token_id = int(args.custom_eos_id)
+        tokenizer.eos_token_id = args.custom_eos_id
     strategy.print(model)
 
     # gradient_checkpointing
