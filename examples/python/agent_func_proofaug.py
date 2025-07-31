@@ -84,6 +84,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     proofaug = proofaug_config.get("proofaug", False)
     proofaug_ans_subst = proofaug_config.get("proofaug_ans_subst", False)
     subst_rule = proofaug_config.get("subst_rule", None) # keep_depth
+    depth_thres = proofaug_config.get("depth_thres", None)
     proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
     code_only = proofaug_config.get("code_only", False)
     part_reward = proofaug_config.get("part_reward", 0.5)
@@ -119,7 +120,12 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         body = ret_obj.bodies[0]
         proofaug_subst = ret_obj.proofaug_substs[0]
         
-        if subst_rule == "ge2depth" and (pa_depth < min(2, depth)):
+
+        if subst_rule == "maxdepth" and (pa_depth < max(depth_thres, depth)):
+            reward = part_reward
+            logger.info(f"{subst_rule=}: {pa_depth=} < max({depth_thres}, {depth=}) => keep the original action {action=} rather than using {proofaug_code=}")
+            ret_action = action            
+        elif subst_rule == "ge2depth" and (pa_depth < min(2, depth)):
             reward = part_reward
             logger.info(f"{subst_rule=}: {pa_depth=} < min(2, {depth=}) => keep the original action {action=} rather than using {proofaug_code=}")
             ret_action = action
