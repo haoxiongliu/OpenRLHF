@@ -1,5 +1,6 @@
 proofaug: true
-hammer_recipe: mixh0_v4
+record_pa_reward: true
+hammer_recipe: mix3
 random_order: true
 proofaug_ans_subst: true
 proofaug_think_mode: remove
