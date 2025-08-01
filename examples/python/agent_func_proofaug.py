@@ -103,6 +103,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                 "done": True, 
                 "extra_logs": {
                     "orig_rewards": 0.0,
+                    "pa_rewards": 0.0,
                 }
             }
     success_type = ret_obj.success_types[0]
