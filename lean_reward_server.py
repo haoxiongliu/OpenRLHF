@@ -125,6 +125,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "record_pa_reward": reward_request.record_pa_reward,
             "hammer_list": reward_request.hammer_list,
             "hammer_recipe": reward_request.hammer_recipe,
+            "random_order": reward_request.random_order,
             "require_reconstruct": reward_request.require_reconstruct,
             "step_timeout": reward_request.step_timeout,
             "total_timeout": reward_request.total_timeout,
@@ -155,8 +156,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             else:
                 reward = orig_reward
             verify_time = verify_times[i] if verify_times[i] is not None else 0.0
-            # to be modified.
-            reward = 1.0 - reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
+            time_penalty = reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
+            reward = max(0.0, reward - time_penalty)
             rewards.append(reward)
             orig_rewards.append(orig_reward)
             pa_rewards.append(pa_reward)

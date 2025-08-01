@@ -33,6 +33,7 @@ async def call_remote_reward_model(
     step_timeout = proofaug_config.get("step_timeout", 60)
     remote_timeout = proofaug_config.get("remote_timeout", 300)
     total_timeout = proofaug_config.get("total_timeout", None)
+    random_order = proofaug_config.get("random_order", False)
     
     headers = {"Content-Type": "application/json"}
     if isinstance(queries, str):
@@ -49,6 +50,7 @@ async def call_remote_reward_model(
         record_pa_reward=record_pa_reward,
         hammer_list=hammer_list,
         hammer_recipe=hammer_recipe,
+        random_order=random_order,
         require_reconstruct=True,
         step_timeout=step_timeout,
         pa_with_orig=True,

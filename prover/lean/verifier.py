@@ -15,6 +15,7 @@ import itertools
 import concurrent.futures
 from typing import Optional
 from collections import deque
+import random
 
 from prover.lean.ast_parser import lean4_parser
 from prover.workers import ProcessScheduler
@@ -225,6 +226,7 @@ class Lean4ServerProcess(mp.Process):
         hammer_type: Optional[str]=None,    # legacy
         hammer_list: Optional[list[str] | str]=None,
         hammer_recipe: Optional[str]=None,
+        random_order: bool=False,
         require_reconstruct: bool=False,
         step_timeout: Optional[float]=None,
         sorry_mode: str='individual',   # 'individual' or 'grouped'
@@ -362,6 +364,8 @@ class Lean4ServerProcess(mp.Process):
                     assert len(ps2goals[ps]) >= len(init_goals), f"Observe {len(ps2goals[ps])=} < {len(init_goals)=} in {block=} at {part=}"
                     if len(ps2goals[ps]) > len(init_goals): # proofaug
                         ps_cands = sorted(set([ps, sttm_ps]), reverse=True)
+                        if random_order:
+                            random.shuffle(hammers)
                         cand_combs = list(itertools.product(ps_cands, hammers))
                         # removed the cand_i = len(cand_combs) - 1 case since cand_combs could be empty
                         for cand_i, (ps_cand, hammer) in enumerate(cand_combs):

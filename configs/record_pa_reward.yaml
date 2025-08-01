@@ -1,0 +1,5 @@
+proofaug: false
+record_pa_reward: true
+remote_timeout: 300
+total_timeout: 240
+step_timeout: 180

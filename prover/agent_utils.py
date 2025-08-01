@@ -21,6 +21,7 @@ class RewardRequest(BaseModel):
     record_pa_reward: bool = False
     hammer_list: list[str|None] | str | None = None
     hammer_recipe: str | None = None
+    random_order: bool = False  # random execution order for hammers when applying proofaug
     step_timeout: float | None = None
     total_timeout: float | None = None
     require_reconstruct: bool = False
