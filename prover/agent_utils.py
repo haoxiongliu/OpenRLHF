@@ -18,6 +18,7 @@ class RewardRequest(BaseModel):
     prompts: list[str] | None = None  # in fact prompt only
     labels: list[str] | None = None
     proofaug: bool = False
+    record_pa_reward: bool = False
     hammer_list: list[str|None] | str | None = None
     hammer_recipe: str | None = None
     step_timeout: float | None = None
@@ -35,6 +36,7 @@ class RewardResponse(BaseModel):
     """
     rewards: list[float]
     orig_rewards: list[float] = [0.0]
+    pa_rewards: list[float] = [0.0]
     bodies: list[str | None] = [None]
     headers: list[str | None] = [None]
     proofaug_substs: list[dict | None] = [None]

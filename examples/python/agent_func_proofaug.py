@@ -25,9 +25,10 @@ async def call_remote_reward_model(
         queries, prompts, labels, **kwargs) -> RewardResponse:
     """async call remote reward model.
     Returns: a RewardResponse object"""
-    proofaug_config = kwargs.get("proofaug_config") # type: dict
+    proofaug_config: dict[str, Any] = kwargs.get("proofaug_config")
     hammer_list = proofaug_config.get("hammer_list", None)
     hammer_recipe = proofaug_config.get("hammer_recipe", None)
+    record_pa_reward = proofaug_config.get("record_pa_reward", False)
     proofaug = proofaug_config.get("proofaug", False)
     step_timeout = proofaug_config.get("step_timeout", 60)
     remote_timeout = proofaug_config.get("remote_timeout", 300)
@@ -45,6 +46,7 @@ async def call_remote_reward_model(
         prompts=prompts, 
         labels=labels,
         proofaug=proofaug,
+        record_pa_reward=record_pa_reward,
         hammer_list=hammer_list,
         hammer_recipe=hammer_recipe,
         require_reconstruct=True,
@@ -101,10 +103,12 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                     "orig_rewards": 0.0,
                 }
             }
+    success_type = ret_obj.success_types[0]
+    pa_reward = ret_obj.pa_rewards[0]
     reward = ret_obj.rewards[0]
     orig_reward = ret_obj.orig_rewards[0]
     proofaug_code = ret_obj.proofaug_codes[0]
-    success_type = ret_obj.success_types[0]
+    
     header = ret_obj.headers[0]
     body = ret_obj.bodies[0]
     depth = ret_obj.depths[0]
@@ -120,7 +124,6 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         body = ret_obj.bodies[0]
         proofaug_subst = ret_obj.proofaug_substs[0]
         
-
         if subst_rule == "maxdepth" and (pa_depth < max(depth_thres, depth)):
             reward = part_reward
             logger.info(f"{subst_rule=}: {pa_depth=} < max({depth_thres}, {depth=}) => keep the original action {action=} rather than using {proofaug_code=}")
@@ -187,5 +190,6 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         "done": True,  # Boolean indicating if the episode is complete
         "extra_logs": {
             "orig_rewards": orig_reward,
+            "pa_rewards": pa_reward,
         },  # Additional logging information
     }

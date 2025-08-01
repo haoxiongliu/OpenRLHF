@@ -122,6 +122,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         tasks = [{
             "code": code,
             "proofaug": reward_request.proofaug,
+            "record_pa_reward": reward_request.record_pa_reward,
             "hammer_list": reward_request.hammer_list,
             "hammer_recipe": reward_request.hammer_recipe,
             "require_reconstruct": reward_request.require_reconstruct,
@@ -132,7 +133,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         } for code in codes]
         
         verification_request_ids = scheduler.submit_all_request(tasks)
-        verification_results = await scheduler.async_get_all_request_outputs(verification_request_ids) # type: list[dict]
+        verification_results: list[dict] = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
         verify_times = [result.get("verify_time", None) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
@@ -145,15 +146,20 @@ def create_app(args: argparse.Namespace) -> FastAPI:
 
         rewards = []
         orig_rewards = []
+        pa_rewards = []
         for i in range(n):
-            verify_time = verify_times[i] if verify_times[i] is not None else 0.0
-            if verification_results[i].get("complete", False):
-                reward = 1.0 - reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
-            else:
-                reward = 0.0
             orig_reward = 1.0 if success_types[i] in ["pa_orig", "original"] else 0.0
+            pa_reward = 1.0 if success_types[i] in ["pa_orig", "original", "proofaug"] else 0.0
+            if reward_request.proofaug:
+                reward = pa_reward
+            else:
+                reward = orig_reward
+            verify_time = verify_times[i] if verify_times[i] is not None else 0.0
+            # to be modified.
+            reward = 1.0 - reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
             rewards.append(reward)
             orig_rewards.append(orig_reward)
+            pa_rewards.append(pa_reward)
 
         i = random.randint(0, n - 1)
         average_reward = sum(rewards) / len(rewards)
@@ -165,7 +171,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 proofaug_codes.append(None)
             else:
                 assert isinstance(proofaug_body, str)
-                code = codes[i] # type: str
+                code: str = codes[i]
                 sep_pos = code.find(DEF_SIGN)
                 proofaug_proof = proofaug_body.partition(DEF_SIGN)[2]
                 proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
@@ -173,6 +179,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         response = RewardResponse(
             rewards=rewards,
             orig_rewards=orig_rewards,
+            pa_rewards=pa_rewards,
             bodies=bodies,
             headers=headers,
             proofaug_substs=proofaug_substs,

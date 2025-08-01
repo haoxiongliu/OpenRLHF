@@ -220,6 +220,7 @@ class Lean4ServerProcess(mp.Process):
         premises: bool=False, 
         tactics: bool=False, 
         proofaug: bool=False,
+        record_pa_reward: bool=False,
         pa_with_orig: bool=False,
         hammer_type: Optional[str]=None,    # legacy
         hammer_list: Optional[list[str] | str]=None,
@@ -285,7 +286,7 @@ class Lean4ServerProcess(mp.Process):
                     # "verified_code": code,  # Keep original code for reference
                 }
 
-            if proofaug and not complete:
+            if not complete and (proofaug or record_pa_reward):
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
                 body = body.replace("all_goals ", "")
                 prop_struct = ProposalStructure(body)
