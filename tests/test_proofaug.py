@@ -184,6 +184,13 @@ def test_example_simple(host: str = "localhost", port: int = 8000, n: int = 1):
     """
     test_cases = [
         {
+            "name": "simplest example",
+            "code": 'theorem foo: 2+3=5:= by simp',
+            "expected_success_type": "original",
+            "hammer_list": ['linarith'],
+            "step_timeout": 180,
+        },
+        {
             "name": "mathd_algebra_114_mixh0_v1",
             "code": 'import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\ntheorem foo: 2+3=5:= by \n  have h₀ (a: ℕ): a+a = 2*a := by\n    simp\n  simp',
             "expected_success_type": "proofaug",
@@ -248,7 +255,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Test proofaug functionality with lean_reward_server")
     parser.add_argument("--host", default="localhost", help="Hostname of lean_reward_server (default: localhost)")
-    parser.add_argument("--port", type=int, default=5000, help="Port of lean_reward_server (default: 8000)")
+    parser.add_argument("--port", type=int, default=5000, help="Port of lean_reward_server (default: 5000)")
     parser.add_argument("-n", type=int, default=1, help="cases run in parallel")
 
     args = parser.parse_args()
