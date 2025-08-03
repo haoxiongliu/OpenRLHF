@@ -1,0 +1,8 @@
+proofaug: false # whether to use PA as reward
+record_pa_reward: true  # whether to execute PA
+hammer_recipe: mix4
+random_order: true
+
+remote_timeout: 300
+total_timeout: 240
+step_timeout: 180 # timeout per command send to repl

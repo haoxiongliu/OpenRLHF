@@ -69,6 +69,41 @@ import asyncio
 import aiohttp
 from typing import Any, Dict
 from prover.agent_utils import RewardResponse, RewardRequest
+from pydantic import BaseModel
+
+class RewardRequest(BaseModel):
+    """
+    This class is used to send request to lean_reward_server.
+    """
+    queries: list[str]  # in fact prompt+response
+    prompts: list[str] | None = None  # in fact prompt only
+    labels: list[str] | None = None
+    proofaug: bool = False
+    record_pa_reward: bool = False
+    hammer_list: list[str|None] | str | None = None
+    hammer_recipe: str | None = None
+    random_order: bool = False  # random execution order for hammers when applying proofaug
+    step_timeout: float | None = None
+    total_timeout: float | None = None
+    require_reconstruct: bool = False
+    pa_with_orig: bool = False
+    non_repl: bool = False
+    time_reward_ratio: float = 0.0
+    time_reward_threshold: float = 120.0
+    depth_reward_ratio: float = 0.0
+    depth_reward_rate: float = 0.25
+
+
+class RewardResponse(BaseModel):
+    """
+    when RewardResponse(**dict) receive extra fields, it will be ignored.
+    """
+    proofaug_substs: list[dict | None]
+    proofaug_codes: list[str | None]
+    success_types: list[str | None]
+    verify_times: list[float | None]
+    errorss: list[list[str]]
+
 
 REMOTE_RM_URL = "http://localhost:5000/reward"
 
@@ -112,6 +147,7 @@ async def _call_remote_reward_model(self, queries, prompts, labels, **kwargs) ->
 
 def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
     """Apply ProofAug to enhance a proof with hammer tactics"""
+    remote_rm_url = args.get("remote_rm_url", REMOTE_RM_URL)
     requested_node_id = args["node_id"]
     hammer_list = args.get("hammer_list", None)
     hammer_recipe = args.get("hammer_recipe", None)
@@ -147,7 +183,6 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
             "remote_timeout": remote_timeout
         }
         
-        # Call async function (adapt to your agent's async handling)
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -163,13 +198,12 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
             loop.close()
         
         # Extract results
-        reward = ret_obj.rewards[0]
         proofaug_code = ret_obj.proofaug_codes[0]
         proofaug_subst = ret_obj.proofaug_subst[0] 
         success_type = ret_obj.success_types[0]
         verify_time = ret_obj.verify_times[0]
         
-        if reward > 0.0 and success_type == "proofaug":
+        if success_type == "proofaug":
             # ProofAug succeeded - update node
             if proofaug_code:
                 node.proof_text = proofaug_code
@@ -179,12 +213,12 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
                 "status": "completed",
                 "result": "enhanced",
                 "reward": reward,
-                "success_type": success_type,
-                "proofaug_subst": proofaug_subst,
-                "proofaug_code": proofaug_code,
+                "success_type": success_type, # original, failed, proofaug, pa_failed
+                "proofaug_subst": proofaug_subst, # dict[line_number_range: proofaug_code_snippet]
+                "proofaug_code": proofaug_code, # str
                 "verify_time": verify_time,
-                "message": f"ProofAug successfully enhanced proof",
-                "substitutions_applied": len(proofaug_subst) if proofaug_subst else 0
+                "number_of_substitutions_applied": len(proofaug_subst) if proofaug_subst else 0,
+                "message": f"ProofAug successfully find a proof",
             }
         else:
             return {
@@ -205,16 +239,12 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
     except Exception as e:
         return {
             "status": "error",
+            "result": None,
             "message": f"ProofAug failed with error: {str(e)}"
         }
 
-# ============================================================================
-# 4. USAGE EXAMPLE
-# ============================================================================
-
+# usage example
 """
-The agent will automatically discover and use your ProofAug tool via function calling.
-
 Example tool call:
 {
     "node_id": "root",
@@ -224,12 +254,11 @@ Example tool call:
     "total_timeout": 300,
     "remote_timeout": 300
 }
-
 Expected return:
 {
     "status": "completed",
     "result": "enhanced",
-    "proofaug_subst": {"0:5": "simp [*]", "6:10": "auto"},
+    "proofaug_subst": {"0:5": "theorem example : 1 + 1 = 2 := by simp"},
     "proofaug_code": "theorem example : 1 + 1 = 2 := by simp",
     "message": "ProofAug successfully enhanced proof"
 }
