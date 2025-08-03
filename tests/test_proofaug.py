@@ -188,6 +188,7 @@ def test_example_simple(host: str = "localhost", port: int = 8000, n: int = 1):
             "code": 'theorem foo: 2+3=5:= by simp',
             "expected_success_type": "original",
             "hammer_list": ['linarith'],
+            "pa_with_orig": True,
             "step_timeout": 180,
         },
         {
