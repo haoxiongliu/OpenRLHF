@@ -1,12 +1,11 @@
 proofaug: true
 record_pa_reward: true
-hammer_recipe: mix3
+hammer_recipe: mix4
 random_order: true
 proofaug_ans_subst: true
 proofaug_think_mode: remove
-subst_rule: maxdepth
-part_reward: 0.0
-depth_thres: 2
+depth_reward_ratio: 0.8
+depth_reward_rate: 0.2
 
 remote_timeout: 300
 total_timeout: 240

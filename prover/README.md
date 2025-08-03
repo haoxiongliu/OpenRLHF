@@ -46,6 +46,15 @@ python
 
 ```
 
+If you want to run traing, follow
+```bash
+# install CUDA
+# https://developer.nvidia.com/cuda-toolkit-archive
+
+
+```
+
+
 ## Prover Logger
 
 This part explains how to use the prover logger in your code.

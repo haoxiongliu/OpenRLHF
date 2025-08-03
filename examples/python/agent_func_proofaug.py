@@ -34,6 +34,10 @@ async def call_remote_reward_model(
     remote_timeout = proofaug_config.get("remote_timeout", 300)
     total_timeout = proofaug_config.get("total_timeout", None)
     random_order = proofaug_config.get("random_order", False)
+    time_reward_ratio = proofaug_config.get("time_reward_ratio", 0.0)
+    time_reward_threshold = proofaug_config.get("time_reward_threshold", 120.0)
+    depth_reward_ratio = proofaug_config.get("depth_reward_ratio", 0.0)
+    depth_reward_rate = proofaug_config.get("depth_reward_rate", 0.25)
     
     headers = {"Content-Type": "application/json"}
     if isinstance(queries, str):
@@ -55,6 +59,10 @@ async def call_remote_reward_model(
         step_timeout=step_timeout,
         pa_with_orig=True,
         total_timeout=total_timeout,
+        time_reward_ratio=time_reward_ratio,
+        time_reward_threshold=time_reward_threshold,
+        depth_reward_ratio=depth_reward_ratio,
+        depth_reward_rate=depth_reward_rate,
     ).model_dump(exclude_none=True)
     async with aiohttp.ClientSession() as session:
         async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
@@ -108,8 +116,8 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             }
     success_type = ret_obj.success_types[0]
     pa_reward = ret_obj.pa_rewards[0]
-    reward = ret_obj.rewards[0]
     orig_reward = ret_obj.orig_rewards[0]
+    reward = ret_obj.rewards[0] # this could include time reward and depth reward. other twos only include success type.
     proofaug_code = ret_obj.proofaug_codes[0]
     
     header = ret_obj.headers[0]
@@ -120,6 +128,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     if reward > 0.0 and code_only:
         action = f"```lean4\n{header}{body}\n```"
 
+    # substitution related. in lean_reward_server we only handle "raw" reward adjustment.
     if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
         from prover.agent_utils import remove_indent
         think_start = action.find('<think>')

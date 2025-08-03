@@ -3,7 +3,7 @@ bitsandbytes
 datasets
 deepspeed==0.16.9
 einops
-vllm
+vllm<0.9.0
 # flash-attn==2.7.4.post1
 isort
 jsonlines
@@ -13,6 +13,7 @@ optree>=0.13.0
 packaging
 peft
 pynvml>=12.0.0
+pyyaml
 ray[default]==2.43.0
 tensorboard
 torch<2.7.0
@@ -29,3 +30,8 @@ pandas
 ring_flash_attn
 # prover
 easydict
+fire
+numpy
+fastapi
+pydantic
+uvicorn

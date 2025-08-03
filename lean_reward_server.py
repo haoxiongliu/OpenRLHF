@@ -136,13 +136,13 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_request_ids = scheduler.submit_all_request(tasks)
         verification_results: list[dict] = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
-        verify_times = [result.get("verify_time", None) for result in verification_results]
+        verify_times = [result.get("verify_time", 0.0) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
         proofaug_substs = [result.get("proofaug_subst", None) for result in verification_results]
-        pa_depths = [result.get("pa_depth", None) for result in verification_results]
+        pa_depths = [result.get("pa_depth", 0) for result in verification_results]
         depths = [result.get("depth", None) for result in verification_results]
 
         rewards = []
@@ -151,13 +151,10 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         for i in range(n):
             orig_reward = 1.0 if success_types[i] in ["pa_orig", "original"] else 0.0
             pa_reward = 1.0 if success_types[i] in ["pa_orig", "original", "proofaug"] else 0.0
-            if reward_request.proofaug:
-                reward = pa_reward
-            else:
-                reward = orig_reward
-            verify_time = verify_times[i] if verify_times[i] is not None else 0.0
-            time_penalty = reward_request.time_reward_ratio * min(verify_time/reward_request.time_reward_threshold, 1.0)
-            reward = max(0.0, reward - time_penalty)
+            reward = pa_reward if reward_request.proofaug else orig_reward
+            time_penalty = reward_request.time_reward_ratio * min(verify_times[i]/reward_request.time_reward_threshold, 1.0)
+            depth_penalty = reward_request.depth_reward_ratio * max(1.0 - pa_depths[i]*reward_request.depth_reward_rate, 0.0)
+            reward = max(0.0, reward - time_penalty - depth_penalty)
             rewards.append(reward)
             orig_rewards.append(orig_reward)
             pa_rewards.append(pa_reward)
