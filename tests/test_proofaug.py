@@ -17,7 +17,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: str = "localhost", port: int = 8000):
+def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: str = "localhost", port: int = 8000, n: int = 1):
     """
     Test function for proofaug functionality with multiple test cases using lean_reward_server.
     
@@ -56,7 +56,7 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
         
         # Prepare request data for lean_reward_server
         request_data = RewardRequest(
-            queries=[query],  # Send single code as query
+            queries=[query]*n,  # Send single code as query
             proofaug=proofaug,
             pa_with_orig=pa_with_orig,
             hammer_list=hammer_list,
@@ -174,7 +174,7 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
     print(f"📄 Test results saved to: {filepath}")
     return results
 
-def test_example_simple(host: str = "localhost", port: int = 8000):
+def test_example_simple(host: str = "localhost", port: int = 8000, n: int = 1):
     """
     Simple example with just one test case.
     
@@ -236,7 +236,7 @@ def test_example_simple(host: str = "localhost", port: int = 8000):
         },
     ]
     
-    return handle_cases(test_cases, host=host, port=port)
+    return handle_cases(test_cases, host=host, port=port, n=n)
 
 
 if __name__ == "__main__":
@@ -249,8 +249,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test proofaug functionality with lean_reward_server")
     parser.add_argument("--host", default="localhost", help="Hostname of lean_reward_server (default: localhost)")
     parser.add_argument("--port", type=int, default=5000, help="Port of lean_reward_server (default: 8000)")
-    
+    parser.add_argument("-n", type=int, default=1, help="cases run in parallel")
+
     args = parser.parse_args()
     
     print(f"🚀 Running tests against lean_reward_server at {args.host}:{args.port}")
-    test_example_simple(host=args.host, port=args.port) 
+    test_example_simple(host=args.host, port=args.port, n=args.n) 
