@@ -18,7 +18,13 @@ from openrlhf.utils import get_strategy
 def train(args):
     # initialize ray if not initialized
     if not ray.is_initialized():
-        ray.init(runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}})
+        if args.no_runtime_env:
+            import os
+            os.environ["TOKENIZERS_PARALLELISM"] = "true"
+            os.environ["NCCL_DEBUG"] = "WARN"
+            ray.init(runtime_env={})
+        else:
+            ray.init(runtime_env={"env_vars": {"TOKENIZERS_PARALLELISM": "true", "NCCL_DEBUG": "WARN"}})
 
     # configure strategy
     strategy = get_strategy(args)
@@ -203,6 +209,7 @@ if __name__ == "__main__":
         default=False,
         help="whether to colocate reference and actor model, if true, they will share same gpus.",
     )
+    parser.add_argument("--no_runtime_env", action="store_true", default=False, help="disable runtime env for ray")
 
     parser.add_argument("--actor_num_nodes", type=int, default=1, help="number of nodes for actor")
     parser.add_argument("--actor_num_gpus_per_node", type=int, default=8, help="number of gpus per node for actor")
