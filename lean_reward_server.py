@@ -11,7 +11,7 @@ import signal
 import sys
 import yaml
 from os.path import join
-
+import math
 
 
 from prover.lean.verifier import Lean4ServerScheduler
@@ -136,25 +136,29 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_request_ids = scheduler.submit_all_request(tasks)
         verification_results: list[dict] = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
-        verify_times = [result.get("verify_time", 0.0) for result in verification_results]
+        verify_times = [result.get("verify_time", math.inf) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
         proofaug_substs = [result.get("proofaug_subst", None) for result in verification_results]
         pa_depths = [result.get("pa_depth", 0) for result in verification_results]
-        depths = [result.get("depth", None) for result in verification_results]
+        depths = [result.get("depth", 0) for result in verification_results]
 
         rewards = []
         orig_rewards = []
         pa_rewards = []
         for i in range(n):
-            orig_reward = 1.0 if success_types[i] in ["pa_orig", "original"] else 0.0
-            pa_reward = 1.0 if success_types[i] in ["pa_orig", "original", "proofaug"] else 0.0
+            success_type = success_types[i]
+            orig_reward = 1.0 if success_type in ["pa_orig", "original"] else 0.0
+            pa_reward = 1.0 if success_type in ["pa_orig", "original", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
+            
             time_penalty = reward_request.time_reward_ratio * min(verify_times[i]/reward_request.time_reward_threshold, 1.0)
-            depth_penalty = reward_request.depth_reward_ratio * max(1.0 - pa_depths[i]*reward_request.depth_reward_rate, 0.0)
+            depth = pa_depths[i] if success_type == "proofaug" else depths[i]
+            depth_penalty = reward_request.depth_reward_ratio * max(1.0 - depth*reward_request.depth_reward_rate, 0.0)
             reward = max(0.0, reward - time_penalty - depth_penalty)
+
             rewards.append(reward)
             orig_rewards.append(orig_reward)
             pa_rewards.append(pa_reward)

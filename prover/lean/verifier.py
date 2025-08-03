@@ -251,6 +251,8 @@ class Lean4ServerProcess(mp.Process):
             header, body = split_header_body(code, remove_comments=True)    # this header logic is redundant?
             orig_body = body
             orig_header = header
+            prop_struct = ProposalStructure(body.replace("all_goals ", ""))
+            depth = prop_struct.depth   # the depth should correspond to that of original body.
             init_env = None
 
             if hammer_recipe:
@@ -268,7 +270,7 @@ class Lean4ServerProcess(mp.Process):
 
             if (not proofaug) or pa_with_orig:
 
-                command = dict(cmd=body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
+                command = dict(cmd=orig_body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
                 if init_env is not None:
                     command.update(env=init_env)
                 result = self._send_command_to_repl(command, timeout=step_timeout)
@@ -285,13 +287,13 @@ class Lean4ServerProcess(mp.Process):
                     "header": orig_header,
                     "body": orig_body,
                     "complete": complete,
+                    "depth": depth,
                     # "verified_code": code,  # Keep original code for reference
                 }
 
             if not complete and (proofaug or record_pa_reward):
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
-                body = body.replace("all_goals ", "")
-                prop_struct = ProposalStructure(body)
+                
                 block = prop_struct.root.parts[0]
                 proofaug_subst = dict()
                 ps2goals = {None: []}
@@ -445,7 +447,7 @@ class Lean4ServerProcess(mp.Process):
                     "errors": errors,
                     "header": orig_header,
                     "body": orig_body,
-                    "depth": prop_struct.depth,
+                    "depth": depth,
                     "pa_depth": result.get('pa_depth', None),
                     "success_type": success_type,
                     "proofaug_subst": proofaug_subst,
