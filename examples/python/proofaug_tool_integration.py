@@ -11,17 +11,15 @@ from typing import Any, Dict
 from prover.agent_utils import RewardResponse, RewardRequest
 
 # Remote reward model URL (same as in agent_func_proofaug.py)
-REMOTE_RM_URL = "http://localhost:5000/reward"
-
 class PureAgenticProverWithProofAug:
     """Example showing ProofAug tool integration"""
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, host="http://localhost", port="5005", *args, **kwargs):
         # Initialize other components...
         self.strategies_used = []
         self.nodes = {}  # Node management
         self.lean_verifier = None  # Lean verifier instance
-        
+        self.remote_rm_url = f"{host}:{port}/reward"
         # Tool definitions with ProofAug added
         self.tools = [
             # ... other existing tools ...
@@ -45,7 +43,7 @@ class PureAgenticProverWithProofAug:
                             },
                             "hammer_recipe": {
                                 "type": "string",
-                                "description": "Hammer recipe/strategy to apply. Recommended choices: 'mix2', 'mixh0_v3', ",
+                                "description": "Hammer recipe/strategy to apply. Recommended choices: 'mix2', 'mix4', ",
                                 "default": None
                             },
                             "step_timeout": {
@@ -108,7 +106,7 @@ class PureAgenticProverWithProofAug:
         ).model_dump(exclude_none=True)
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(REMOTE_RM_URL, json=data, headers=headers, 
+            async with session.post(self.remote_rm_url, json=data, headers=headers, 
                                   timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
                 response.raise_for_status()
                 result = await response.json()
@@ -270,7 +268,7 @@ class PureAgenticProverWithProofAug:
             }
 
 # Example usage
-def example_usage():
+def example_usage(*args, **kwargs):
     """Example of how to use the ProofAug tool"""
     
     # Mock node for demonstration
@@ -281,7 +279,7 @@ def example_usage():
             self.status = "unproved"
     
     # Create agent instance
-    agent = PureAgenticProverWithProofAug()
+    agent = PureAgenticProverWithProofAug(*args, **kwargs)
     agent.nodes = {"root": MockNode()}
     
     # Example ProofAug tool call
@@ -301,4 +299,4 @@ def example_usage():
     # print(f"   Result: {result}")
 
 if __name__ == "__main__":
-    example_usage() 
+    example_usage(host="http://localhost", port="5005")

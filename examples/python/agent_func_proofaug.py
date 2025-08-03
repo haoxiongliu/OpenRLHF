@@ -100,6 +100,10 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
     code_only = proofaug_config.get("code_only", False)
     part_reward = proofaug_config.get("part_reward", 0.5)
+    time_reward_ratio = proofaug_config.get("time_reward_ratio", 0.0)
+    time_reward_threshold = proofaug_config.get("time_reward_threshold", 120.0)
+    depth_reward_ratio = proofaug_config.get("depth_reward_ratio", 0.0)
+    depth_reward_rate = proofaug_config.get("depth_reward_rate", 0.25)
 
     try:
         ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
@@ -124,6 +128,8 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     body = ret_obj.bodies[0]
     depth = ret_obj.depths[0]
     pa_depth = ret_obj.pa_depths[0]
+    verify_time = ret_obj.verify_times[0]
+    verify_time = time_reward_threshold if verify_time is None else verify_time
 
     if reward > 0.0 and code_only:
         action = f"```lean4\n{header}{body}\n```"
@@ -192,6 +198,13 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             logger.info(f"proofaug modification for {action=} => {ret_action=}")
     else:
         ret_action = action
+    
+    # handle depth reward here.
+            
+    time_penalty = time_reward_ratio * min(verify_time/time_reward_threshold, 1.0)
+    reward_depth = pa_depth if ret_action != action else depth
+    depth_penalty = depth_reward_ratio * max(1.0 - reward_depth*depth_reward_rate, 0.0)
+    reward = max(0.0, reward - time_penalty - depth_penalty)
 
     next_observation = observation + ret_action
     # breakpoint()

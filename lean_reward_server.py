@@ -152,11 +152,6 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             orig_reward = 1.0 if success_type in ["pa_orig", "original"] else 0.0
             pa_reward = 1.0 if success_type in ["pa_orig", "original", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
-            
-            time_penalty = reward_request.time_reward_ratio * min(verify_times[i]/reward_request.time_reward_threshold, 1.0)
-            depth = pa_depths[i] if success_type == "proofaug" else depths[i]
-            depth_penalty = reward_request.depth_reward_ratio * max(1.0 - depth*reward_request.depth_reward_rate, 0.0)
-            reward = max(0.0, reward - time_penalty - depth_penalty)
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
