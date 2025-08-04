@@ -241,9 +241,10 @@ class Lean4ServerProcess(mp.Process):
         assert not non_repl or not proofaug, "non_repl and proofaug cannot be both True"
 
         global hammer_count
-        start_time = time.time()
+        
         hammer_count = 0  # Initialize hammer_count at the start
         complete = False
+        search_start_time = time.time()
         try:
             if non_repl:
                 raise NotImplementedError("non_repl is not implemented yet")
@@ -269,7 +270,7 @@ class Lean4ServerProcess(mp.Process):
                 init_env = self._initialize_header_env(header)
 
             if (not proofaug) or pa_with_orig:
-
+                start_time = time.time()
                 command = dict(cmd=orig_body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
                 if init_env is not None:
                     command.update(env=init_env)
@@ -288,12 +289,12 @@ class Lean4ServerProcess(mp.Process):
                     "body": orig_body,
                     "complete": complete,
                     "depth": depth,
+                    "verify_time": time.time() - start_time,
                     # "verified_code": code,  # Keep original code for reference
                 }
 
             if not complete and (proofaug or record_pa_reward):
                 assert self.use_pty, "ProofAug is only supported in Pty mode"
-                
                 block = prop_struct.root.parts[0]
                 proofaug_subst = dict()
                 ps2goals = {None: []}
@@ -418,6 +419,7 @@ class Lean4ServerProcess(mp.Process):
                         block.state = BlockState.COMPLETED
                         if block.level == 0:
                             assert result.get('proofStatus', None) == 'Completed', f"Observe {result.get('proofStatus', None)=} != 'Completed' in {block=}"
+                            start_time = time.time()
                             verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
                             result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
                             errors = compile_errors(result_verify)
@@ -428,6 +430,7 @@ class Lean4ServerProcess(mp.Process):
                                     block.state = BlockState.NO_RECONSTRUCT
                             else:
                                 logger.debug(f"Verified the reconstructed proof {block.proofaug_content=}")
+                            result['verify_time'] = time.time() - start_time
                             result['proofaug_body'] = block.proofaug_content
                             result['pa_depth'] = ProposalStructure(block.proofaug_content).depth
 
@@ -454,6 +457,7 @@ class Lean4ServerProcess(mp.Process):
                     "proofaug_body": result.get('proofaug_body', None),
                     "last_result": result,
                     "hammer_count": hammer_count,
+                    "verify_time": result.get('verify_time', None), # the final proofaug verify time
                 }
 
         except TimeoutError as e:
@@ -475,8 +479,8 @@ class Lean4ServerProcess(mp.Process):
                 "system_errors": [traceback.format_exc()],
             }
             self._clean_init_repl()
-            
-        verification_result['verify_time'] = time.time() - start_time
+        search_end_time = time.time()
+        verification_result['search_time'] = search_end_time - search_start_time
         return verification_result
     
     def _cleanup_repl(self):

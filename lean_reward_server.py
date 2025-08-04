@@ -135,7 +135,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verification_request_ids = scheduler.submit_all_request(tasks)
         verification_results: list[dict] = await scheduler.async_get_all_request_outputs(verification_request_ids)
         # The result is _verify_lean4_with_persistent_repl return value
-        verify_times = [result.get("verify_time", reward_request.total_timeout) for result in verification_results]
+        verify_times = [result.get("verify_time", None) for result in verification_results]
+        search_times = [result.get("search_time", None) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
         bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
@@ -182,6 +183,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             proofaug_codes=proofaug_codes,
             success_types=success_types,
             verify_times=verify_times,
+            search_times=search_times,
             errorss=errorss,
             pa_depths=pa_depths,
             depths=depths,

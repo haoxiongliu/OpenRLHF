@@ -3,6 +3,8 @@ ProofAug Tool Integration Example for Pure Agentic Prover
 
 This file shows how to integrate the ProofAug tool into the pure agentic prover
 following the patterns from the integration guide.
+
+just python proofaug_tool_integration.py to test if you can access my server.
 """
 
 import asyncio

@@ -46,6 +46,7 @@ class RewardResponse(BaseModel):
     proofaug_codes: list[str | None] = [None]
     success_types: list[str | None] = [None]
     verify_times: list[float | None] = [None]
+    search_times: list[float | None] = [None]
     pa_depths: list[int | None] = [None]
     depths: list[int | None] = [None]
     errorss: list[list[str]] = [[]]
@@ -59,6 +60,7 @@ if __name__ == "__main__":
         "proofaug_codes": ["```lean4\n\n```"],
         "success_types": ["proofaug"],
         "verify_times": [0.0],
+        "search_times": [0.0],
         "errorss": ["error"],
     }
     response = RewardResponse(**ret_dict)
