@@ -24,12 +24,12 @@ PROOFAUG_TOOL_DEFINITION = {
                 "hammer_list": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of hammer tactics to use (e.g., ['simp', 'auto', 'blast'])",
+                    "description": "List of hammer tactics to use (e.g., ['simp', 'nlinarith', 'norm_cast'])",
                     "default": None
                 },
                 "hammer_recipe": {
                     "type": "string",
-                    "description": "Hammer recipe/strategy to apply",
+                    "description": "Hammer recipe/strategy to apply. Recommended choices: 'mix2' or 'mix4'",
                     "default": None
                 },
                 "step_timeout": {
@@ -68,7 +68,6 @@ PROOFAUG_TOOL_DEFINITION = {
 import asyncio
 import aiohttp
 from typing import Any, Dict
-from prover.agent_utils import RewardResponse, RewardRequest
 from pydantic import BaseModel
 
 class RewardRequest(BaseModel):
@@ -98,6 +97,7 @@ class RewardResponse(BaseModel):
     """
     when RewardResponse(**dict) receive extra fields, it will be ignored.
     """
+    rewards: list[float | None]
     proofaug_substs: list[dict | None]
     proofaug_codes: list[str | None]
     success_types: list[str | None]
@@ -138,7 +138,7 @@ async def _call_remote_reward_model(self, queries, prompts, labels, **kwargs) ->
     ).model_dump(exclude_none=True)
     
     async with aiohttp.ClientSession() as session:
-        async with session.post(REMOTE_RM_URL, json=data, headers=headers, 
+        async with session.post(self.remote_rm_url, json=data, headers=headers, 
                               timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
             response.raise_for_status()
             result = await response.json()
@@ -147,7 +147,6 @@ async def _call_remote_reward_model(self, queries, prompts, labels, **kwargs) ->
 
 def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
     """Apply ProofAug to enhance a proof with hammer tactics"""
-    remote_rm_url = args.get("remote_rm_url", REMOTE_RM_URL)
     requested_node_id = args["node_id"]
     hammer_list = args.get("hammer_list", None)
     hammer_recipe = args.get("hammer_recipe", None)
@@ -170,6 +169,11 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
         }
     
     print(f"🔧 APPLYING PROOFAUG: {node_id}")
+    print(f"   📋 Hammer list: {hammer_list}")
+    print(f"   🎯 Hammer recipe: {hammer_recipe}")
+    print(f"   ⏱️  Step timeout: {step_timeout}s")
+    print(f"   ⏰ Total timeout: {total_timeout}s")
+    
     self.strategies_used.append("proofaug")
     
     try:
@@ -186,11 +190,16 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            # Construct the query (original proof + statement)
+            query = f"```lean4\n{node.proof_text}\n```"
+            prompt = f"```lean4\n{node.statement}"
+            label = node_id
+            
             ret_obj = loop.run_until_complete(
                 self._call_remote_reward_model(
-                    queries=node.proof_text,
-                    prompts=node.statement, 
-                    labels=node_id,
+                    queries=query,
+                    prompts=prompt, 
+                    labels=label,
                     proofaug_config=proofaug_config
                 )
             )
@@ -198,49 +207,55 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
             loop.close()
         
         # Extract results
+        reward = ret_obj.rewards[0]
         proofaug_code = ret_obj.proofaug_codes[0]
-        proofaug_subst = ret_obj.proofaug_subst[0] 
+        proofaug_subst = ret_obj.proofaug_substs[0] 
         success_type = ret_obj.success_types[0]
         verify_time = ret_obj.verify_times[0]
+        errors = ret_obj.errorss[0]
         
-        if success_type == "proofaug":
-            # ProofAug succeeded - update node
+        print(f"   📊 ProofAug result: reward={reward}, success_type={success_type}")
+        print(f"   ⏱️  Verification time: {verify_time}s")
+        
+        if success_type == "original":
+            result = "success"
+            message = "The original proof is already valid."
+        elif success_type == "proofaug":
+            result = "success"
+            message = "ProofAug enhancement successful!"
             if proofaug_code:
                 node.proof_text = proofaug_code
                 node.status = "proved"
-            
-            return {
-                "status": "completed",
-                "result": "enhanced",
-                "reward": reward,
-                "success_type": success_type, # original, failed, proofaug, pa_failed
-                "proofaug_subst": proofaug_subst, # dict[line_number_range: proofaug_code_snippet]
-                "proofaug_code": proofaug_code, # str
-                "verify_time": verify_time,
-                "number_of_substitutions_applied": len(proofaug_subst) if proofaug_subst else 0,
-                "message": f"ProofAug successfully find a proof",
-            }
-        else:
-            return {
-                "status": "completed", 
-                "result": "no_improvement",
-                "reward": reward,
-                "proofaug_subst": proofaug_subst,
-                "message": f"ProofAug completed but did not improve the proof",
-                "suggestion": "Try different hammer tactics or adjust timeouts"
-            }
-            
-    except asyncio.TimeoutError:
+                print(f"   🔄 Updated proof with ProofAug enhancements")
+        elif success_type == "pa_faield":
+            result = "error"
+            message = "ProofAug failed to correct the proof."
+
         return {
             "status": "completed",
-            "result": "timeout", 
-            "message": f"ProofAug timed out after {remote_timeout} seconds"
+            "result": result,
+            "message": message,
+            "success_type": success_type,
+            "proofaug_subst": proofaug_subst,
+            "proofaug_code": proofaug_code,
+            "verify_time": verify_time,
+            "errors": errors
         }
-    except Exception as e:
+            
+    except asyncio.TimeoutError:
+        print(f"   ⏰ ProofAug timed out after {remote_timeout}s")
         return {
             "status": "error",
-            "result": None,
-            "message": f"ProofAug failed with error: {str(e)}"
+            "result": "timeout", 
+            "message": f"ProofAug timed out after {remote_timeout} seconds",
+            "suggestion": "Try increasing remote_timeout or total_timeout or use other meethods"
+        }
+    except Exception as e:
+        print(f"   ❌ ProofAug error: {e}")
+        return {
+            "status": "error",
+            "message": f"ProofAug failed with error: {str(e)}",
+            "suggestion": "Check network connection and remote reward model server"
         }
 
 # usage example
@@ -248,8 +263,8 @@ def _proofaug(self, args: Dict[str, Any]) -> Dict[str, Any]:
 Example tool call:
 {
     "node_id": "root",
-    "hammer_list": ["simp", "auto", "blast"],
-    "hammer_recipe": "standard",
+    "hammer_list": ["simp", "nlinarith", "norm_cast"],
+    "hammer_recipe": "mix4",
     "step_timeout": 60,
     "total_timeout": 300,
     "remote_timeout": 300
@@ -257,9 +272,12 @@ Example tool call:
 Expected return:
 {
     "status": "completed",
-    "result": "enhanced",
+    "result": "success",
+    "success_type": "proofaug",
     "proofaug_subst": {"0:5": "theorem example : 1 + 1 = 2 := by simp"},
     "proofaug_code": "theorem example : 1 + 1 = 2 := by simp",
-    "message": "ProofAug successfully enhanced proof"
+    "verify_time": 1.2,
+    "errors": [],
+    "message": "ProofAug enhancement successful!"
 }
 """ 

@@ -8,7 +8,41 @@ following the patterns from the integration guide.
 import asyncio
 import aiohttp
 from typing import Any, Dict
-from prover.agent_utils import RewardResponse, RewardRequest
+from pydantic import BaseModel
+
+class RewardRequest(BaseModel):
+    """
+    This class is used to send request to lean_reward_server.
+    """
+    queries: list[str]  # in fact prompt+response
+    prompts: list[str] | None = None  # in fact prompt only
+    labels: list[str] | None = None
+    proofaug: bool = False
+    record_pa_reward: bool = False
+    hammer_list: list[str|None] | str | None = None
+    hammer_recipe: str | None = None
+    random_order: bool = False  # random execution order for hammers when applying proofaug
+    step_timeout: float | None = None
+    total_timeout: float | None = None
+    require_reconstruct: bool = False
+    pa_with_orig: bool = False
+    non_repl: bool = False
+    time_reward_ratio: float = 0.0
+    time_reward_threshold: float = 120.0
+    depth_reward_ratio: float = 0.0
+    depth_reward_rate: float = 0.25
+
+
+class RewardResponse(BaseModel):
+    """
+    when RewardResponse(**dict) receive extra fields, it will be ignored.
+    """
+    rewards: list[float | None]
+    proofaug_substs: list[dict | None]
+    proofaug_codes: list[str | None]
+    success_types: list[str | None]
+    verify_times: list[float | None]
+    errorss: list[list[str]]
 
 # Remote reward model URL (same as in agent_func_proofaug.py)
 class PureAgenticProverWithProofAug:
@@ -38,12 +72,12 @@ class PureAgenticProverWithProofAug:
                             "hammer_list": {
                                 "type": "array",
                                 "items": {"type": "string"},
-                                "description": "List of hammer tactics to use (e.g., ['simp', 'auto', 'blast'])",
+                                "description": "List of hammer tactics to use (e.g., ['simp', 'nlinarith', 'norm_cast'])",
                                 "default": None
                             },
                             "hammer_recipe": {
                                 "type": "string",
-                                "description": "Hammer recipe/strategy to apply. Recommended choices: 'mix2', 'mix4', ",
+                                "description": "Hammer recipe/strategy to apply. Recommended choices: 'mix2' or 'mix4'",
                                 "default": None
                             },
                             "step_timeout": {
@@ -161,8 +195,8 @@ class PureAgenticProverWithProofAug:
             asyncio.set_event_loop(loop)
             try:
                 # Construct the query (original proof + statement)
-                query = node.proof_text
-                prompt = node.statement
+                query = f"```lean4\n{node.proof_text}\n```"
+                prompt = f"```lean4\n{node.statement}"
                 label = node_id
                 
                 ret_obj = loop.run_until_complete(
@@ -187,53 +221,38 @@ class PureAgenticProverWithProofAug:
             print(f"   📊 ProofAug result: reward={reward}, success_type={success_type}")
             print(f"   ⏱️  Verification time: {verify_time}s")
             
-            if reward > 0.0 and success_type == "proofaug":
-                # ProofAug succeeded
-                print(f"   ✅ ProofAug enhancement successful!")
-                
-                # Update node with enhanced proof
+            if success_type == "original":
+                result = "success"
+                message = "The original proof is already valid."
+            elif success_type == "proofaug":
+                result = "success"
+                message = "ProofAug enhancement successful!"
                 if proofaug_code:
                     node.proof_text = proofaug_code
                     node.status = "proved"
                     print(f"   🔄 Updated proof with ProofAug enhancements")
-                
-                return {
-                    "status": "completed",
-                    "result": "enhanced",
-                    "reward": reward,
-                    "success_type": success_type,
-                    "proofaug_subst": proofaug_subst,
-                    "proofaug_code": proofaug_code,
-                    "verify_time": verify_time,
-                    "message": f"ProofAug successfully enhanced proof with {success_type}",
-                    "hammer_list": hammer_list,
-                    "hammer_recipe": hammer_recipe,
-                    "substitutions_applied": len(proofaug_subst) if proofaug_subst else 0
-                }
-            else:
-                # ProofAug didn't improve the proof
-                print(f"   ❌ ProofAug did not enhance the proof (reward={reward})")
-                
-                return {
-                    "status": "completed", 
-                    "result": "no_improvement",
-                    "reward": reward,
-                    "success_type": success_type,
-                    "proofaug_subst": proofaug_subst,
-                    "proofaug_code": proofaug_code,
-                    "verify_time": verify_time,
-                    "errors": errors,
-                    "message": f"ProofAug completed but did not improve the proof (success_type: {success_type})",
-                    "suggestion": "Try different hammer tactics or adjust timeouts"
-                }
-                
+            elif success_type == "pa_faield":
+                result = "error"
+                message = "ProofAug failed to correct the proof."
+
+            return {
+                "status": "completed",
+                "result": result,
+                "message": message,
+                "success_type": success_type,
+                "proofaug_subst": proofaug_subst,
+                "proofaug_code": proofaug_code,
+                "verify_time": verify_time,
+                "errors": errors
+            }
+
         except asyncio.TimeoutError:
             print(f"   ⏰ ProofAug timed out after {remote_timeout}s")
             return {
-                "status": "completed",
+                "status": "error",
                 "result": "timeout", 
                 "message": f"ProofAug timed out after {remote_timeout} seconds",
-                "suggestion": "Try increasing remote_timeout or reducing total_timeout"
+                "suggestion": "Try increasing remote_timeout or total_timeout or use other meethods"
             }
         except Exception as e:
             print(f"   ❌ ProofAug error: {e}")
@@ -274,8 +293,11 @@ def example_usage(*args, **kwargs):
     # Mock node for demonstration
     class MockNode:
         def __init__(self):
-            self.statement = "theorem example : 1 + 1 = 2"
-            self.proof_text = "theorem example : 1 + 1 = 2 := by norm_num"
+            self.statement = r"""import Mathlib
+theorem xixi (a:ℕ): a + a = 2*a :="""
+            self.proof_text = r"""import Mathlib
+theorem xixi (a:ℕ): a + a = 2*a := by 
+  simp"""
             self.status = "unproved"
     
     # Create agent instance
@@ -285,8 +307,7 @@ def example_usage(*args, **kwargs):
     # Example ProofAug tool call
     proofaug_args = {
         "node_id": "root",
-        "hammer_list": ["simp", "auto", "blast"],
-        "hammer_recipe": "standard",
+        "hammer_recipe": "mix4",
         "step_timeout": 60,
         "total_timeout": 300
     }
@@ -295,8 +316,8 @@ def example_usage(*args, **kwargs):
     print(f"   Arguments: {proofaug_args}")
     
     # Note: This would normally be called by the agent's function calling system
-    # result = agent._proofaug(proofaug_args)
-    # print(f"   Result: {result}")
+    result = agent._proofaug(proofaug_args)
+    print(f"   Result: {result}")
 
 if __name__ == "__main__":
-    example_usage(host="http://localhost", port="5005")
+    example_usage(host="10.248.12.11", port="5005")
