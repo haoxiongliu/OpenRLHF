@@ -210,11 +210,11 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     # breakpoint()
     return {
         "rewards": reward,  # Rewards for advantage calculation
+        "orig_rewards": orig_reward,  # Rewards for baseline estimation
         "scores": reward,  # Scores for dynamic filtering (0-1 reward)
         "next_observation": next_observation,  # The updated observation for vLLM in next step
         "done": True,  # Boolean indicating if the episode is complete
         "extra_logs": {
-            "orig_rewards": orig_reward,
             "pa_rewards": pa_reward,
         },  # Additional logging information
     }

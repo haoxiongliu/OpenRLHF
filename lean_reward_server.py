@@ -80,7 +80,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         """code MUST be included in a ```lean4 block, and we will extract the code."""
         n = len(reward_request.queries)
         request_id = str(uuid.uuid4())[:8]
-        logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
+        logger.debug(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
 
         # although reward does not to be 100% accurate
         # but loose rules can lead to reward hacking.
@@ -153,6 +153,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             orig_reward = 1.0 if success_type in ["pa_orig", "original"] else 0.0
             pa_reward = 1.0 if success_type in ["pa_orig", "original", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
+            if orig_reward != pa_reward:
+                logger.info(f"proofaug reward modification detected: {proofaug_bodies[i]} from {bodies[i]}")
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
@@ -160,7 +162,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
 
         i = random.randint(0, n - 1)
         average_reward = sum(rewards) / len(rewards)
-        logger.info(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
+        logger.debug(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
 
         proofaug_codes = [] # prompt prefix + proofaug proof after sep
         for i, proofaug_body in enumerate(proofaug_bodies):

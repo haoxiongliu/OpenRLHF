@@ -60,6 +60,7 @@ class Experience:
     labels: list[str] = None
     rewards: torch.Tensor = None  # used for advantage calculation
     scores: torch.Tensor = None  # 0-1 reward used for dynamic sampling
+    orig_rewards: torch.Tensor = None  # used for baseline estimation
 
     # the info field is used to store additional information
     # all the fields in the info will be logged to the tensorboard/wandb
@@ -80,6 +81,7 @@ class Experience:
         labels=None,
         rewards=None,
         scores=None,
+        orig_rewards=None,
         info=None,
     ):
         self.sequences = sequences
@@ -95,6 +97,7 @@ class Experience:
         self.labels = labels or []
         self.rewards = rewards
         self.scores = scores
+        self.orig_rewards = orig_rewards
         self.info = info or []
 
     @torch.no_grad()
@@ -206,6 +209,7 @@ def update_samples_with_rewards(rewards_info, samples_list):
     """
     # Process rewards and scores
     rewards_list = torch.cat([info["rewards"] for info in rewards_info], dim=0).chunk(len(samples_list))
+    orig_rewards_list = torch.cat([info["orig_rewards"] for info in rewards_info], dim=0).chunk(len(samples_list))
     if "scores" in rewards_info[0]:
         scores_list = torch.cat([info["scores"] for info in rewards_info], dim=0).chunk(len(samples_list))
     else:
@@ -227,6 +231,7 @@ def update_samples_with_rewards(rewards_info, samples_list):
         samples.scores = scores_list[i]
         samples.info["score"] = scores_list[i]
         samples.info["reward"] = rewards_list[i]
+        samples.orig_rewards = orig_rewards_list[i]
         if "extra_logs" in rewards_info[0]:
             for key, values in merged_logs.items():
                 samples.info[key] = values[i]
@@ -626,6 +631,8 @@ class RemoteExperienceMaker(ABC):
         # get rewards from experiences
         rewards = [experience.rewards for experience in experiences]
         rewards = torch.cat(rewards).reshape(-1, args.n_samples_per_prompt)
+        orig_rewards = [experience.orig_rewards for experience in experiences]
+        orig_rewards = torch.cat(orig_rewards).reshape(-1, args.n_samples_per_prompt)
 
         # log group reward std
         if args.n_samples_per_prompt > 1:
@@ -637,14 +644,15 @@ class RemoteExperienceMaker(ABC):
 
         # reward shaping
         if args.advantage_estimator == "rloo":
-            baseline = (rewards.sum(-1, keepdim=True) - rewards) / (args.n_samples_per_prompt - 1)
+            # baseline = (rewards.sum(-1, keepdim=True) - rewards) / (args.n_samples_per_prompt - 1)
+            baseline = (orig_rewards.sum(-1, keepdim=True) - orig_rewards) / (args.n_samples_per_prompt - 1)
             rewards = rewards - baseline
         elif args.advantage_estimator in ["reinforce_baseline", "dr_grpo"]:
             # REINFORCE++-baseline and Dr. GRPO removed the `/std` in GRPO as `/ std` is not needed in RL variance reduction theory.
             # And `k3 KL` has a larger variance than `k1 KL` under a categorical distribution.
-            rewards = rewards - rewards.mean(-1, keepdim=True)
+            rewards = rewards - orig_rewards.mean(-1, keepdim=True)
         elif args.advantage_estimator == "group_norm":
-            rewards = (rewards - rewards.mean(-1, keepdim=True)) / (rewards.std(-1, keepdim=True) + 1e-9)
+            rewards = (rewards - orig_rewards.mean(-1, keepdim=True)) / (rewards.std(-1, keepdim=True) + 1e-9)
 
         rewards = rewards.reshape(-1).chunk(len(experiences))
 
@@ -666,7 +674,7 @@ class RemoteExperienceMaker(ABC):
                     args.gamma,
                     args.lambd,
                 )
-            elif self.advantage_estimator in ["reinforce", "rloo", "reinforce_baseline", "group_norm", "dr_grpo"]:
+            elif self.advantage_estimator in ["reinforce", "rloo", "reinforce_baseline", "group_norm", "dr_grpo", "reward"]:
                 if args.gamma != 1.0 and self.advantage_estimator in [
                     "rloo",
                     "reinforce_baseline",

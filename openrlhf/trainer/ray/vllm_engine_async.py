@@ -108,6 +108,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 observation = prompt
                 action_ranges = []
                 total_reward = 0
+                total_orig_reward = 0
                 final_scores = 0
                 extra_logs = None
 
@@ -137,9 +138,13 @@ class LLMRayActorAsync(BaseLLMRayActor):
                               "proofaug_config": proofaug_config}
                     result = await agent_instance.step.remote(observation, action, label, **kwargs)
                     reward = result["rewards"]
+                    orig_reward = result["orig_rewards"]
                     if isinstance(reward, torch.Tensor):
                         reward = reward.item()
+                    if isinstance(orig_reward, torch.Tensor):
+                        orig_reward = orig_reward.item()
                     total_reward += reward
+                    total_orig_reward += orig_reward
                     final_scores = result.get("scores", total_reward)
                     observation = result["next_observation"]
                     done = result["done"]
@@ -172,7 +177,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     "label": label,
                     "observation": observation,
                     "reward": total_reward,
-                    "orig_reward": orig_reward,
+                    "orig_reward": total_orig_reward,
                     "scores": final_scores,
                     "extra_logs": extra_logs,
                     "action_ranges": action_ranges,

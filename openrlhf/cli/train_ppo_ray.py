@@ -376,9 +376,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--advantage_estimator",
         type=str,
-        choices=["gae", "reinforce", "rloo", "reinforce_baseline", "group_norm", "dr_grpo"],
+        choices=["gae", "reinforce", "rloo", "reinforce_baseline", "group_norm", "dr_grpo", "reward"],
         default="gae",
-        help="Choose advantage estimation method: gae, reinforce, rloo, reinforce_baseline, group_norm, dr_grpo",
+        help="Choose advantage estimation method: gae, reinforce, rloo, reinforce_baseline, group_norm, dr_grpo, reward. reward means directly use reward as advantage",
     )
     parser.add_argument("--use_kl_loss", action="store_true", default=False, help="whether to use KL loss from GRPO")
     parser.add_argument(
