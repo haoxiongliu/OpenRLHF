@@ -229,4 +229,4 @@ if __name__ == "__main__":
     
     app = create_app(args)
     logger.info(f"Starting server on {args.host}:{args.port}")
-    uvicorn.run(app, host=args.host, port=args.port, log_level="info") 
+    uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower()) 
