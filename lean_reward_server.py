@@ -80,7 +80,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         """code MUST be included in a ```lean4 block, and we will extract the code."""
         n = len(reward_request.queries)
         request_id = str(uuid.uuid4())[:8]
-        logger.debug(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
+        logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
 
         # although reward does not to be 100% accurate
         # but loose rules can lead to reward hacking.
@@ -154,7 +154,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             pa_reward = 1.0 if success_type in ["pa_orig", "original", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
             if orig_reward != pa_reward:
-                logger.info(f"proofaug reward modification detected: {proofaug_bodies[i]} from {bodies[i]}")
+                logger.warning(f"proofaug reward modification detected: {proofaug_bodies[i]} from {bodies[i]}")
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
@@ -190,7 +190,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             pa_depths=pa_depths,
             depths=depths,
         )
-        logger.debug(f"\n[REQ-{request_id}] {response}")
+        logger.info(f"\n[REQ-{request_id}] {response}")
 
         return response
     
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_name", type=str, default="default", help="Lean environment config name, see configs/lean_env/")
     parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
-    parser.add_argument("--log_level", type=str, default="info", help="debug, info, warning, error, critical")
+    parser.add_argument("--log_level", type=str, default="warning", help="debug, info, warning, error, critical")
 
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
