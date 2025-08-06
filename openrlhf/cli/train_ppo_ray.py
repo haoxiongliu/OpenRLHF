@@ -410,6 +410,7 @@ if __name__ == "__main__":
     
     # ProofAug configs
     parser.add_argument("--proofaug_config_path", type=str, default="configs/default.yaml", help="ProofAug config path")
+    parser.add_argument("--use_pa_baseline", action="store_true", default=False, help="Use ProofAug reward mean when estimating advantage")
 
     # Custom dataset
     parser.add_argument("--prompt_data", type=str, default=None, help="HF dataset name or path")

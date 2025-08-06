@@ -644,15 +644,23 @@ class RemoteExperienceMaker(ABC):
 
         # reward shaping
         if args.advantage_estimator == "rloo":
-            # baseline = (rewards.sum(-1, keepdim=True) - rewards) / (args.n_samples_per_prompt - 1)
-            baseline = (orig_rewards.sum(-1, keepdim=True) - orig_rewards) / (args.n_samples_per_prompt - 1)
+            if args.use_pa_baseline:
+                baseline = (rewards.sum(-1, keepdim=True) - rewards) / (args.n_samples_per_prompt - 1)
+            else:
+                baseline = (orig_rewards.sum(-1, keepdim=True) - orig_rewards) / (args.n_samples_per_prompt - 1)
             rewards = rewards - baseline
         elif args.advantage_estimator in ["reinforce_baseline", "dr_grpo"]:
             # REINFORCE++-baseline and Dr. GRPO removed the `/std` in GRPO as `/ std` is not needed in RL variance reduction theory.
             # And `k3 KL` has a larger variance than `k1 KL` under a categorical distribution.
-            rewards = rewards - orig_rewards.mean(-1, keepdim=True)
+            if args.use_pa_baseline:
+                rewards = rewards - rewards.mean(-1, keepdim=True)
+            else:
+                rewards = rewards - orig_rewards.mean(-1, keepdim=True)
         elif args.advantage_estimator == "group_norm":
-            rewards = (rewards - orig_rewards.mean(-1, keepdim=True)) / (rewards.std(-1, keepdim=True) + 1e-9)
+            if args.use_pa_baseline:
+                rewards = (rewards - rewards.mean(-1, keepdim=True)) / (rewards.std(-1, keepdim=True) + 1e-9)
+            else:
+                rewards = (rewards - orig_rewards.mean(-1, keepdim=True)) / (rewards.std(-1, keepdim=True) + 1e-9)
 
         rewards = rewards.reshape(-1).chunk(len(experiences))
 
