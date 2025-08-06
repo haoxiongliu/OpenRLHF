@@ -1,3 +1,7 @@
+"""
+"theorem" is required in the prompt and response.
+"""
+
 import logging
 import argparse
 import uuid
@@ -10,6 +14,7 @@ import random
 import signal
 import sys
 import yaml
+import re
 from os.path import join
 
 
@@ -84,20 +89,27 @@ def create_app(args: argparse.Namespace) -> FastAPI:
 
         # although reward does not to be 100% accurate
         # but loose rules can lead to reward hacking.
-        codes = []
+        
         mode = "completion"
         for query in reward_request.queries:
             if query.count("```lean4") > 1 or "<think>" in query or "<im_end>" in query:
                 mode = "chat"
                 break
 
-        # codes_in_prompt = []
+        prompt_pattern = r"(?s)(?P<prefix>.*?theorem .*?):=.*"
+        response_pattern = r"(?s)(?P<prefix>.*?theorem .*?):= by(?P<suffix>.*)"
+
+        codes = []
+        prefixes = []
         for i in range(n):
+            prefix = code = None
             query = reward_request.queries[i]
             if not query:
                 code = None
             elif mode == "completion":
                 code = extract_code(query)
+                if m := re.match(response_pattern, code or ""):
+                    prefix = m.group("prefix")
             elif mode == "chat":
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
@@ -106,19 +118,27 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 code_in_prompt = extract_code(prompt)
                 response = query[len(prompt):]
                 code_in_response = extract_code(response, omit_think=True)
-                # TODO: use pattern match "theorem .*DEF_SIGN" to find the statement
+
                 # The original implement fails when the informal includes, and for lemma styles + defs.
-                if code_in_response is None or code_in_prompt is None:
-                    code = None
-                else:
-                    prefix = code_in_prompt.split(DEF_SIGN)[0]
-                    sep_pos = code_in_response.find(DEF_SIGN)
-                    if sep_pos == -1:
-                        logger.debug(f"No {DEF_SIGN=} found in {code_in_response[-100:]}")
+                if code_in_response and code_in_prompt:
+                    m_response = re.match(response_pattern, code_in_response)
+                    m_prompt = re.match(prompt_pattern, code_in_prompt)
+                    if m_response is None or m_prompt is None:
+                        logger.warning(f"No theorem statement found in {code_in_response[-100:]} or {code_in_prompt[-100:]}")
                         code = None
                     else:
-                        code = prefix + code_in_response[sep_pos:]
+                        prefix = m_prompt.group("prefix")
+                        suffix = m_response.group("suffix")
+                        code = prefix + ":= by" + suffix
+                    # prefix = code_in_prompt.split(DEF_SIGN)[0]
+                    # sep_pos = code_in_response.find(DEF_SIGN)
+                    # if sep_pos == -1:
+                    #     logger.debug(f"No {DEF_SIGN=} found in {code_in_response[-100:]}")
+                    #     code = None
+                    # else:
+                    #     code = prefix + code_in_response[sep_pos:]
             codes.append(code)
+            prefixes.append(prefix)
         headers = [split_header_body(code, remove_comments=False)[0] if code is not None else "" for code in codes]
         tasks = [{
             "code": code,
@@ -152,11 +172,11 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         pa_rewards = []
         for i in range(n):
             success_type = success_types[i]
-            orig_reward = 1.0 if success_type in ["pa_orig", "original"] else 0.0
-            pa_reward = 1.0 if success_type in ["pa_orig", "original", "proofaug"] else 0.0
+            orig_reward = 1.0 if success_type in ["original"] else 0.0
+            pa_reward = 1.0 if success_type in ["original", "pa_orig", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
             if orig_reward != pa_reward:
-                logger.info(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom\n{bodies[i]=}")
+                logger.info(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom {bodies[i]=}")
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
@@ -171,11 +191,14 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             if proofaug_body is None:
                 proofaug_codes.append(None)
             else:
-                assert isinstance(proofaug_body, str)
-                code: str = codes[i]
-                sep_pos = code.find(DEF_SIGN)
-                proofaug_proof = proofaug_body.partition(DEF_SIGN)[2] # this is correct
-                proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
+                assert isinstance(proofaug_body, str)   # this assert it has := by, and theorem
+                prefix = prefixes[i]
+                m_pa_body = re.match(response_pattern, proofaug_body)
+                pa_suffix = m_pa_body.group("suffix")
+                proofaug_codes.append(prefix + ":= by" + pa_suffix)
+                # sep_pos = code.find(DEF_SIGN)
+                # proofaug_proof = proofaug_body.partition(DEF_SIGN)[2] # this is correct
+                # proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
 
         response = RewardResponse(
             rewards=rewards,

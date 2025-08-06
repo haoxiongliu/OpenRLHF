@@ -8,7 +8,7 @@ Support zero-shot is enough. remove the few-shot implementation.
 This script:
 1. Loads the lean-workbook-messages dataset (from local file or HuggingFace Hub)
 2. Uses Goedel-LM/Goedel-Prover-V2-8B to attempt solving each problem with pass@8
-3. Filters out problems that the model CAN solve (keeps only unsolvable ones)
+3. Filters out problems that the model CANNOT solve (keeps only solvable ones)
 4. Saves the filtered dataset for RL training
 
 Unlike eval_pipeline.py, this supports loading datasets directly from HuggingFace Hub
@@ -275,7 +275,7 @@ def main(args):
             problem_results[name] = []
         problem_results[name].append(result)
     
-    # Step 6: Filter problems - keep only those that FAILED pass@8
+    # Step 6: Filter problems - keep only those that PASSED pass@8
     filtered_data = []
     total_problems = len(data_list)
     solvable_count = 0
@@ -285,20 +285,20 @@ def main(args):
         if name in problem_results:
             # Check if this problem passes pass@8 test
             if check_pass_at_k(problem_results[name], k=8):
-                solvable_count += 1
-                logger.info(f"Problem {name} is solvable - FILTERING OUT")
-            else:
-                # Keep this problem - model cannot solve it
+                # Keep this problem - model can solve it
                 filtered_data.append(data)
-                logger.debug(f"Problem {name} is unsolvable - KEEPING")
+                logger.debug(f"Problem {name} is solvable - KEEPING")
+            else:
+                solvable_count += 1
+                logger.info(f"Problem {name} is unsolvable - FILTERING OUT")
         else:
-            # No results for this problem (likely all attempts failed) - keep it
-            filtered_data.append(data)
-            logger.debug(f"Problem {name} had no valid attempts - KEEPING")
+            # No results for this problem (likely all attempts failed) - filter it out
+            solvable_count += 1
+            logger.debug(f"Problem {name} had no valid attempts - FILTERING OUT")
     
     # Step 7: Save filtered dataset
     filtered_count = len(filtered_data)
-    logger.info(f"Filtered dataset: {filtered_count}/{total_problems} problems kept ({solvable_count} filtered out)")
+    logger.info(f"Filtered dataset: {filtered_count}/{total_problems} problems kept ({solvable_count} unsolvable problems filtered out)")
     
     # Save filtered dataset
     output_path = os.path.join(args.output_dir, 'filtered_dataset.jsonl')
@@ -320,7 +320,7 @@ def main(args):
         "dataset_source": "huggingface" if is_huggingface else "local_file",
         "split": args.split,
         "total_problems": total_problems,
-        "solvable_problems": solvable_count,
+        "unsolvable_problems": solvable_count,
         "filtered_problems": filtered_count,
         "pass_at_k": args.n,
         "max_size_debug": args.max_size,
@@ -337,8 +337,8 @@ def main(args):
     if args.max_size:
         print(f"DEBUG MODE: Limited to {args.max_size} problems")
     print(f"Total problems: {total_problems}")
-    print(f"Solvable problems (filtered out): {solvable_count}")
-    print(f"Unsolvable problems (kept): {filtered_count}")
+    print(f"Unsolvable problems (filtered out): {solvable_count}")
+    print(f"Solvable problems (kept): {filtered_count}")
     print(f"Filtered dataset saved to: {output_path}")
     print(f"Summary saved to: {summary_path}")
 

@@ -252,7 +252,10 @@ class Lean4ServerProcess(mp.Process):
             header, body = split_header_body(code, remove_comments=True)    # this header logic is redundant?
             orig_body = body
             orig_header = header
-            prop_struct = ProposalStructure(body.replace("all_goals ", "")) # TODO: know apply? exact? cases.
+            body = body.replace("all_goals ", "")
+            for kw in ["apply?", "exact?", "sorry"]:
+                body = body.replace(kw, "simp")
+            prop_struct = ProposalStructure(body)
             depth = prop_struct.depth   # the depth should correspond to that of original body.
             init_env = None
 
