@@ -211,7 +211,7 @@ class Lean4ServerProcess(mp.Process):
 
         except Exception as e:
             self._clean_init_repl()
-            raise ValueError(f"{e.__class__.__name__} {e}, resulting in repl restarted, during sending {command=}")
+            raise ValueError(f"{e}, resulting in repl restarted, during sending {command=}")
 
     def _verify_lean4_with_persistent_repl(
         self, 
@@ -252,7 +252,7 @@ class Lean4ServerProcess(mp.Process):
             header, body = split_header_body(code, remove_comments=True)    # this header logic is redundant?
             orig_body = body
             orig_header = header
-            prop_struct = ProposalStructure(body.replace("all_goals ", ""))
+            prop_struct = ProposalStructure(body.replace("all_goals ", "")) # TODO: know apply? exact? cases.
             depth = prop_struct.depth   # the depth should correspond to that of original body.
             init_env = None
 
@@ -461,7 +461,7 @@ class Lean4ServerProcess(mp.Process):
                 }
 
         except TimeoutError as e:
-            logger.debug(f"{e.__class__.__name__} {e}, timeout during verifying {code=}")
+            logger.debug(f"{e}, timeout during verifying {code=}")
             verification_result = {
                 "pass": False,
                 "complete": False,
@@ -471,7 +471,7 @@ class Lean4ServerProcess(mp.Process):
             self._clean_init_repl()
 
         except Exception as e:
-            logger.error(f"{e.__class__.__name__} {e}, unhandled error during verifying {code=}")
+            logger.error(f"{e}, unhandled")
             verification_result = {
                 "pass": False,
                 "complete": False,

@@ -1,8 +1,0 @@
-hammer_recipe: mix2
-hammer_list: null
-proofaug: true
-proofaug_ans_subst: false
-remote_timeout: 180
-step_timeout: 60
-time_reward_ratio: 0.0
-time_reward_threshold: 120

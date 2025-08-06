@@ -1,6 +1,0 @@
-hammer_recipe: mix2
-hammer_list: null
-proofaug: true
-proofaug_ans_subst: false
-remote_timeout: 120
-step_timeout: 30

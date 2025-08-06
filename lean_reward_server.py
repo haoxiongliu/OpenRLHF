@@ -80,7 +80,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         """code MUST be included in a ```lean4 block, and we will extract the code."""
         n = len(reward_request.queries)
         request_id = str(uuid.uuid4())[:8]
-        logger.info(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
+        logger.debug(f"[REQ-{request_id}] Received reward request with {len(reward_request.queries)} queries")
 
         # although reward does not to be 100% accurate
         # but loose rules can lead to reward hacking.
@@ -106,6 +106,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 code_in_prompt = extract_code(prompt)
                 response = query[len(prompt):]
                 code_in_response = extract_code(response, omit_think=True)
+                # TODO: use pattern match "theorem .*DEF_SIGN" to find the statement
+                # The original implement fails when the informal includes, and for lemma styles + defs.
                 if code_in_response is None or code_in_prompt is None:
                     code = None
                 else:
@@ -154,7 +156,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             pa_reward = 1.0 if success_type in ["pa_orig", "original", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
             if orig_reward != pa_reward:
-                logger.warning(f"proofaug reward modification detected: {proofaug_bodies[i]} from {bodies[i]}")
+                logger.info(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom\n{bodies[i]=}")
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
@@ -172,7 +174,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 assert isinstance(proofaug_body, str)
                 code: str = codes[i]
                 sep_pos = code.find(DEF_SIGN)
-                proofaug_proof = proofaug_body.partition(DEF_SIGN)[2]
+                proofaug_proof = proofaug_body.partition(DEF_SIGN)[2] # this is correct
                 proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
 
         response = RewardResponse(
@@ -190,7 +192,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             pa_depths=pa_depths,
             depths=depths,
         )
-        logger.info(f"\n[REQ-{request_id}] {response}")
+        logger.debug(f"\n[REQ-{request_id}] {response}")
 
         return response
     
@@ -214,7 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--config_name", type=str, default="default", help="Lean environment config name, see configs/lean_env/")
     parser.add_argument("-n", "--max_concurrent", type=int, default=32, help="Maximum concurrent verification requests")
     parser.add_argument("--memory_limit", type=float, default=10, help="Memory limit in GB for Lean processes")
-    parser.add_argument("--log_level", type=str, default="warning", help="debug, info, warning, error, critical")
+    parser.add_argument("--log_level", type=str, default="info", help="debug, info, warning, error, critical")
 
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
@@ -229,4 +231,6 @@ if __name__ == "__main__":
     
     app = create_app(args)
     logger.info(f"Starting server on {args.host}:{args.port}")
+    if args.log_level.lower() in ["warning"]:
+        logger.warning("Warning log level is set, most logs will be suppressed.")
     uvicorn.run(app, host=args.host, port=args.port, log_level=args.log_level.lower()) 
