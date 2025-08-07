@@ -488,7 +488,10 @@ class Lean4ServerProcess(mp.Process):
             self._clean_init_repl()
 
         except Exception as e:
-            logger.error(f"{e}, unhandled")
+            message = f"{e}, unhandled"
+            if "tactic" in str(e):
+                message += f" during verifying {code=}"
+            logger.error(message)
             verification_result = {
                 "pass": False,
                 "complete": False,

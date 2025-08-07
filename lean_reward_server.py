@@ -167,7 +167,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             pa_reward = 1.0 if success_type in ["original", "pa_orig", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
             if orig_reward != pa_reward:
-                logger.debug(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom {bodies[i]=}")
+                logger.debug(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom {bodies[i]=} with verification time {verify_times[i]=}")
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
