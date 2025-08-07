@@ -200,6 +200,8 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         reward_depth = pa_depth if ret_action != action else depth
         depth_penalty = depth_reward_ratio * max(1.0 - reward_depth*depth_reward_rate, 0.0)
         reward = max(0.0, reward - time_penalty - depth_penalty)
+        orig_reward = max(0.0, orig_reward - time_penalty - depth_penalty)
+        pa_reward = max(0.0, pa_reward - time_penalty - depth_penalty)
 
         next_observation = observation + ret_action
         # breakpoint()

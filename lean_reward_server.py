@@ -96,26 +96,24 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 mode = "chat"
                 break
 
-        prompt_pattern = r"(?s)(?P<prefix>.*?theorem .*?):=.*"
-        response_pattern = r"(?s)(?P<prefix>.*?theorem .*?):= by(?P<suffix>.*)"
+        prompt_pattern = r"(?s)(?P<header>.*)(?P<statement>theorem .*?):=.*"
+        response_pattern = r"(?s)(?P<header>.*)(?P<statement>theorem .*?):= by(?P<suffix>.*)"
 
         codes = []
-        prefixes = []
+        theorem_statements = []
         for i in range(n):
-            prefix = code = None
+            statement = code = None
             query = reward_request.queries[i]
             if not query:
-                code = None
+                pass
             elif mode == "completion":
                 code = extract_code(query)
                 if m := re.match(response_pattern, code or ""):
-                    prefix = m.group("prefix")
+                    statement = m.group("statement")
             elif mode == "chat":
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
-                if not prompt:
-                    logger.warning(f"No prompt found for chat mode {query=}.")
-                code_in_prompt = extract_code(prompt)
+                code_in_prompt = extract_code(prompt)  # assert prompt is not None
                 response = query[len(prompt):]
                 code_in_response = extract_code(response, omit_think=True)
 
@@ -124,21 +122,14 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                     m_response = re.match(response_pattern, code_in_response)
                     m_prompt = re.match(prompt_pattern, code_in_prompt)
                     if m_response is None or m_prompt is None:
-                        logger.warning(f"No theorem statement found in {code_in_response[-100:]} or {code_in_prompt[-100:]}")
-                        code = None
+                        logger.warning(f"No theorem statement found in {code_in_response=} or {code_in_prompt=}")
                     else:
-                        prefix = m_prompt.group("prefix")
+                        header = m_prompt.group("header")
+                        statement = m_prompt.group("statement")
                         suffix = m_response.group("suffix")
-                        code = prefix + ":= by" + suffix
-                    # prefix = code_in_prompt.split(DEF_SIGN)[0]
-                    # sep_pos = code_in_response.find(DEF_SIGN)
-                    # if sep_pos == -1:
-                    #     logger.debug(f"No {DEF_SIGN=} found in {code_in_response[-100:]}")
-                    #     code = None
-                    # else:
-                    #     code = prefix + code_in_response[sep_pos:]
+                        code = header + statement + ":= by" + suffix
             codes.append(code)
-            prefixes.append(prefix)
+            theorem_statements.append(statement)
         headers = [split_header_body(code, remove_comments=False)[0] if code is not None else "" for code in codes]
         tasks = [{
             "code": code,
@@ -176,7 +167,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             pa_reward = 1.0 if success_type in ["original", "pa_orig", "proofaug"] else 0.0
             reward = pa_reward if reward_request.proofaug else orig_reward
             if orig_reward != pa_reward:
-                logger.info(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom {bodies[i]=}")
+                logger.debug(f"proofaug reward modification detected:\n{proofaug_bodies[i]=}\nfrom {bodies[i]=}")
 
             rewards.append(reward)
             orig_rewards.append(orig_reward)
@@ -192,13 +183,10 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 proofaug_codes.append(None)
             else:
                 assert isinstance(proofaug_body, str)   # this assert it has := by, and theorem
-                prefix = prefixes[i]
+                statement = theorem_statements[i]
                 m_pa_body = re.match(response_pattern, proofaug_body)
                 pa_suffix = m_pa_body.group("suffix")
-                proofaug_codes.append(prefix + ":= by" + pa_suffix)
-                # sep_pos = code.find(DEF_SIGN)
-                # proofaug_proof = proofaug_body.partition(DEF_SIGN)[2] # this is correct
-                # proofaug_codes.append(code[:sep_pos] + DEF_SIGN + proofaug_proof)
+                proofaug_codes.append(statement + ":= by" + pa_suffix)
 
         response = RewardResponse(
             rewards=rewards,

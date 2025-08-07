@@ -1,0 +1,12 @@
+proofaug: true
+record_pa_reward: true
+hammer_recipe: mix4
+random_order: true
+proofaug_ans_subst: true
+proofaug_think_mode: remove
+time_reward_ratio: 0.5
+time_reward_threshold: 5
+
+remote_timeout: 300
+total_timeout: 180
+step_timeout: 120

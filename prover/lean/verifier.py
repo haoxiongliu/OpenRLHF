@@ -25,6 +25,8 @@ from prover.utils import DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL
 from prover.lean.psa import ProposalStructure, Snippet, Block, BlockState
 
 
+BANNED_TACTIC = ["apply?", "exact?", "sorry"]
+
 class Lean4ServerProcess(mp.Process):
     def __init__(self, idx, task_queue, request_statuses, lock, timeout=300, memory_limit=-1, lake_path=DEFAULT_LAKE_PATH, lean_workspace=DEFAULT_LEAN_WORKSPACE, repl_path=DEFAULT_REPL_PATH, use_pty=False, pty_restart_count=100):
         super().__init__()
@@ -253,7 +255,10 @@ class Lean4ServerProcess(mp.Process):
             orig_body = body
             orig_header = header
             body = body.replace("all_goals ", "")
-            for kw in ["apply?", "exact?", "sorry"]:
+            has_banned = False
+            for kw in BANNED_TACTIC:
+                if kw in body:
+                    has_banned = True
                 body = body.replace(kw, "simp")
             prop_struct = ProposalStructure(body)
             depth = prop_struct.depth   # the depth should correspond to that of original body.
@@ -277,24 +282,33 @@ class Lean4ServerProcess(mp.Process):
                 command = dict(cmd=orig_body, allTactics=allTactics, ast=ast, tactics=tactics, premises=premises)
                 if init_env is not None:
                     command.update(env=init_env)
-                result = self._send_command_to_repl(command, timeout=step_timeout)
-                
-                complete = is_complete(result, code)
-                verification_result = {
-                    "success_type": 'original' if complete else 'failed',
-                    "sorries": result.get('sorries', []), 
-                    "tactics": result.get('tactics', []),
-                    "errors": compile_errors(result),
-                    "messages": result.get('messages', []),
-                    "system_errors": [],
-                    "ast": lean4_parser(code, result['ast']) if 'ast' in result else {},
-                    "header": orig_header,
-                    "body": orig_body,
-                    "complete": complete,
-                    "depth": depth,
-                    "verify_time": time.time() - start_time,
-                    # "verified_code": code,  # Keep original code for reference
-                }
+                if not has_banned:
+                    result = self._send_command_to_repl(command, timeout=step_timeout)
+                    complete = is_complete(result, code)
+                    verification_result = {
+                        "success_type": 'original' if complete else 'failed',
+                        "sorries": result.get('sorries', []), 
+                        "tactics": result.get('tactics', []),
+                        "errors": compile_errors(result),
+                        "messages": result.get('messages', []),
+                        "system_errors": [],
+                        "ast": lean4_parser(code, result['ast']) if 'ast' in result else {},
+                        "header": orig_header,
+                        "body": orig_body,
+                        "complete": complete,
+                        "depth": depth,
+                        "verify_time": time.time() - start_time,
+                        # "verified_code": code,  # Keep original code for reference
+                    }
+                else:
+                    complete = False
+                    verification_result = {
+                        "success_type": 'has_banned',
+                        "errors": ["Banned tactic found in the code"],
+                        "header": orig_header,
+                        "body": orig_body,
+                        "depth": depth,
+                    }
 
             if not complete and (proofaug or record_pa_reward):
                 assert self.use_pty, "ProofAug is only supported in Pty mode"

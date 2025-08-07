@@ -1,0 +1,8 @@
+proofaug: false
+record_pa_reward: true  # whether to execute PA
+hammer_recipe: mix5
+random_order: true
+
+remote_timeout: 300
+total_timeout: 180
+step_timeout: 120
