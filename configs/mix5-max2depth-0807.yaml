@@ -9,5 +9,5 @@ part_reward: 0.0
 depth_thres: 2
 
 remote_timeout: 300
-total_timeout: 240
-step_timeout: 180
+total_timeout: 180
+step_timeout: 120

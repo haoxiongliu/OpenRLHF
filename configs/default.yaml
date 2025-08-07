@@ -2,3 +2,5 @@ proofaug: false
 remote_timeout: 300
 total_timeout: 240
 step_timeout: 180
+
+# the real default should be record_pa_reward.
