@@ -76,6 +76,18 @@ def extract_inference_params(output_dir):
         return match.group(1)
     return None
 
+def extract_test_dataset(output_dir):
+    """Extract test dataset name from output_dir (e.g., minif2f_test_kimina, pset_test)"""
+    if not output_dir:
+        return 'unknown'
+    
+    # Look for pattern results/[dataset_name]/...
+    match = re.search(r'results/([^/]+)', output_dir)
+    if match:
+        return match.group(1)
+    
+    return 'unknown'
+
 def aggregate_by_step(points_list):
     """Aggregate points by step, calculating mean and std across seeds"""
     step_data = defaultdict(list)
@@ -117,6 +129,7 @@ def main():
         output_dir = entry.get('output_dir', '')
         step = extract_step_number(model_path)
         inference_params = extract_inference_params(output_dir)
+        test_dataset = extract_test_dataset(output_dir)
         
         # Ad-hoc static baseline data
         if 'hf_models' in model_path and step is None:
@@ -128,9 +141,9 @@ def main():
             # Use output_dir directly for baseline distinction if inference_params is empty
             if not real_output_dir:
                 # If inference_params extraction failed, use the output_dir directly
-                baseline_key = (n, output_dir)
+                baseline_key = (n, test_dataset, output_dir)
             else:
-                baseline_key = (n, real_output_dir)
+                baseline_key = (n, test_dataset, real_output_dir)
             
             # Store multiple baseline values for the same key (different seeds)
             if baseline_key not in baseline_data:
@@ -160,8 +173,8 @@ def main():
         if inference_params != cleaned_params:
             print(f"DEBUG Training - Original: '{inference_params}' -> Cleaned: '{cleaned_params}'")
         
-        # Create a key for grouping (only training_name, n, and cleaned inference_params)
-        key = (training_name, n, cleaned_params)
+        # Create a key for grouping (training_name, n, test_dataset, and cleaned inference_params)
+        key = (training_name, n, test_dataset, cleaned_params)
         
         grouped_data[key].append({
             'step': step,
@@ -208,37 +221,47 @@ def main():
     # Print debug information
     print("\nTraining curves found:")
     for key, points in aggregated_data.items():
-        training_name, n, inference_params = key
+        training_name, n, test_dataset, inference_params = key
         steps = [p['step'] for p in points]
         num_seeds = [p['num_seeds'] for p in points]
-        print(f"  {training_name} n={n}{inference_params}: {len(points)} points, steps={steps}, seeds={num_seeds}")
+        print(f"  {training_name} n={n} dataset={test_dataset}{inference_params}: {len(points)} points, steps={steps}, seeds={num_seeds}")
     
-    # Get unique n values
+    # Get unique n values and test datasets
     n_values = set()
+    test_datasets = set()
     for key in aggregated_data.keys():
-        training_name, n, inference_params = key
+        training_name, n, test_dataset, inference_params = key
         n_values.add(n)
+        test_datasets.add(test_dataset)
     for baseline_key in processed_baseline_data.keys():
-        n, inference_params_or_dir = baseline_key
+        n, test_dataset, inference_params_or_dir = baseline_key
         n_values.add(n)
+        test_datasets.add(test_dataset)
     
     n_values = sorted(list(n_values))
+    test_datasets = sorted(list(test_datasets))
     print(f"Found n values: {n_values}")
+    print(f"Found test datasets: {test_datasets}")
     
-    # Create subplots for each n value
+    # Create subplots for each combination of test_dataset and n value
     n_count = len(n_values)
-    if n_count == 0:
-        print("No n values found!")
+    dataset_count = len(test_datasets)
+    if n_count == 0 or dataset_count == 0:
+        print("No n values or test datasets found!")
         return
     
-    fig, axes = plt.subplots(1, n_count, figsize=(12 * n_count, 10))
-    if n_count == 1:
-        axes = [axes]  # Make it a list for consistency
+    fig, axes = plt.subplots(dataset_count, n_count, figsize=(12 * n_count, 10 * dataset_count))
+    if dataset_count == 1 and n_count == 1:
+        axes = [[axes]]  # Make it a 2D array for consistency
+    elif dataset_count == 1:
+        axes = [axes]  # Make it a 2D array for consistency
+    elif n_count == 1:
+        axes = [[ax] for ax in axes]  # Make it a 2D array for consistency
     
     # Get all unique training names and assign colors
     training_names = set()
     for key in aggregated_data.keys():
-        training_name, n, inference_params = key
+        training_name, n, test_dataset, inference_params = key
         training_names.add(training_name)
     
     # Create color map for training names
@@ -248,95 +271,96 @@ def main():
     # Create color map for baseline recipes
     baseline_recipes = set()
     for baseline_key in processed_baseline_data.keys():
-        n, inference_params_or_dir = baseline_key
+        n, test_dataset, inference_params_or_dir = baseline_key
         baseline_recipes.add(inference_params_or_dir)
     baseline_colors = plt.cm.Set2(range(len(baseline_recipes)))
     baseline_color_map = dict(zip(baseline_recipes, baseline_colors))
     
-    # Plot for each n value
-    for i, n_val in enumerate(n_values):
-        ax = axes[i]
-        
-        # Plot baseline points for this n value
-        for baseline_key, baseline_point in processed_baseline_data.items():
-            n, inference_params_or_dir = baseline_key
-            if n != n_val:
-                continue
+    # Plot for each combination of test dataset and n value
+    for i, dataset_val in enumerate(test_datasets):
+        for j, n_val in enumerate(n_values):
+            ax = axes[i][j]
+            
+            # Plot baseline points for this dataset and n value
+            for baseline_key, baseline_point in processed_baseline_data.items():
+                n, test_dataset, inference_params_or_dir = baseline_key
+                if n != n_val or test_dataset != dataset_val:
+                    continue
+                    
+                mean_pass_rate = baseline_point['mean_pass_rate']
+                std_pass_rate = baseline_point['std_pass_rate']
+                num_seeds = baseline_point['num_seeds']
                 
-            mean_pass_rate = baseline_point['mean_pass_rate']
-            std_pass_rate = baseline_point['std_pass_rate']
-            num_seeds = baseline_point['num_seeds']
-            
-            # Simplify baseline label - only keep the last part after the last '/'
-            if inference_params_or_dir and '/' in inference_params_or_dir:
-                baseline_label = inference_params_or_dir.split('/')[-1]
-            else:
-                baseline_label = inference_params_or_dir or 'default'
-            
-            # Get color for this baseline recipe
-            baseline_color = baseline_color_map[inference_params_or_dir]
-            
-            # Plot baseline at step=0 with shaded area for error
-            ax.scatter([0], [mean_pass_rate], marker='x', s=64, color=baseline_color,
-                      label=f'{baseline_label} baseline ({num_seeds} seeds)', zorder=5)
-            
-            # Add shaded area for baseline standard deviation (very narrow, almost like a vertical line)
-            if std_pass_rate > 0:
-                step_width = 0.5  # Very narrow horizontal extent, almost like a vertical line
-                ax.fill_between([-step_width, step_width], 
-                               [mean_pass_rate - std_pass_rate] * 2,
-                               [mean_pass_rate + std_pass_rate] * 2, 
-                               alpha=0.2, color=baseline_color)
-        
-        # Plot training curves for this n value
-        for key, points in aggregated_data.items():
-            training_name, n, inference_params = key
-            if n != n_val:
-                continue
+                # Simplify baseline label - only keep the last part after the last '/'
+                if inference_params_or_dir and '/' in inference_params_or_dir:
+                    baseline_label = inference_params_or_dir.split('/')[-1]
+                else:
+                    baseline_label = inference_params_or_dir or 'default'
                 
-            if not points:
-                continue
+                # Get color for this baseline recipe
+                baseline_color = baseline_color_map[inference_params_or_dir]
                 
-            # Include training name and inference_params in label (n is already in title)
-            label = f'{training_name}{inference_params}'
+                # Plot baseline at step=0 with shaded area for error
+                ax.scatter([0], [mean_pass_rate], marker='x', s=64, color=baseline_color,
+                          label=f'{baseline_label} baseline ({num_seeds} seeds)', zorder=5)
+                
+                # Add shaded area for baseline standard deviation (very narrow, almost like a vertical line)
+                if std_pass_rate > 0:
+                    step_width = 0.5  # Very narrow horizontal extent, almost like a vertical line
+                    ax.fill_between([-step_width, step_width], 
+                                   [mean_pass_rate - std_pass_rate] * 2,
+                                   [mean_pass_rate + std_pass_rate] * 2, 
+                                   alpha=0.2, color=baseline_color)
             
-            # Get color for this training
-            color = color_map[training_name]
+            # Plot training curves for this dataset and n value
+            for key, points in aggregated_data.items():
+                training_name, n, test_dataset, inference_params = key
+                if n != n_val or test_dataset != dataset_val:
+                    continue
+                    
+                if not points:
+                    continue
+                    
+                # Include training name and inference_params in label (n and dataset are in title)
+                label = f'{training_name}{inference_params}'
+                
+                # Get color for this training
+                color = color_map[training_name]
+                
+                # Extract data for plotting
+                steps = [p['step'] for p in points]
+                mean_pass_rates = [p['mean_pass_rate'] for p in points]
+                std_pass_rates = [p['std_pass_rate'] for p in points]
+                num_seeds = [p['num_seeds'] for p in points]
+                
+                # Add number of seeds info to label
+                max_seeds = max(num_seeds) if num_seeds else 1
+                min_seeds = min(num_seeds) if num_seeds else 1
+                if max_seeds == min_seeds:
+                    seed_info = f" ({max_seeds} seeds)"
+                else:
+                    seed_info = f" ({min_seeds}-{max_seeds} seeds)"
+                
+                # Plot with shaded area for error bars
+                if len(steps) > 1:  # Only plot line if we have multiple points
+                    # Plot main line
+                    ax.plot(steps, mean_pass_rates, 'o-', label=label + seed_info, 
+                           linewidth=2, markersize=6, color=color)
+                    # Plot shaded area for standard deviation
+                    upper_bound = [mean + std for mean, std in zip(mean_pass_rates, std_pass_rates)]
+                    lower_bound = [mean - std for mean, std in zip(mean_pass_rates, std_pass_rates)]
+                    ax.fill_between(steps, lower_bound, upper_bound, alpha=0.2, color=color)
+                elif len(steps) == 1:
+                    # For single point, still use error bar
+                    ax.errorbar(steps, mean_pass_rates, yerr=std_pass_rates,
+                               fmt='o', label=label + seed_info, markersize=6, 
+                               color=color, capsize=3)
             
-            # Extract data for plotting
-            steps = [p['step'] for p in points]
-            mean_pass_rates = [p['mean_pass_rate'] for p in points]
-            std_pass_rates = [p['std_pass_rate'] for p in points]
-            num_seeds = [p['num_seeds'] for p in points]
-            
-            # Add number of seeds info to label
-            max_seeds = max(num_seeds) if num_seeds else 1
-            min_seeds = min(num_seeds) if num_seeds else 1
-            if max_seeds == min_seeds:
-                seed_info = f" ({max_seeds} seeds)"
-            else:
-                seed_info = f" ({min_seeds}-{max_seeds} seeds)"
-            
-            # Plot with shaded area for error bars
-            if len(steps) > 1:  # Only plot line if we have multiple points
-                # Plot main line
-                ax.plot(steps, mean_pass_rates, 'o-', label=label + seed_info, 
-                       linewidth=2, markersize=6, color=color)
-                # Plot shaded area for standard deviation
-                upper_bound = [mean + std for mean, std in zip(mean_pass_rates, std_pass_rates)]
-                lower_bound = [mean - std for mean, std in zip(mean_pass_rates, std_pass_rates)]
-                ax.fill_between(steps, lower_bound, upper_bound, alpha=0.2, color=color)
-            elif len(steps) == 1:
-                # For single point, still use error bar
-                ax.errorbar(steps, mean_pass_rates, yerr=std_pass_rates,
-                           fmt='o', label=label + seed_info, markersize=6, 
-                           color=color, capsize=3)
-        
-        ax.set_xlabel('Training Steps')
-        ax.set_ylabel('Pass Rate')
-        ax.set_title(f'n={n_val}')
-        ax.legend(bbox_to_anchor=(0.5, 1.02), loc='lower center', ncol=1)
-        ax.grid(True, alpha=0.3)
+            ax.set_xlabel('Training Steps')
+            ax.set_ylabel('Pass Rate')
+            ax.set_title(f'{dataset_val} - n={n_val}')
+            ax.legend(bbox_to_anchor=(0.5, 1.02), loc='lower center', ncol=1)
+            ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
     plt.subplots_adjust(top=0.85)  # Leave space for legend on the top
