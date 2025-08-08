@@ -25,7 +25,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.utils import extract_code, DEEPSEEK_HEADER, DEF_SIGN, remove_think, extract_code, merge_code, split_header_body, PROOF_START
+from prover.utils import extract_code, extract_code, merge_code, split_header_body, PROOF_START
 from prover.constants import RECIPE2HAMMER_LIST
 from prover.logger import logger
 import torch

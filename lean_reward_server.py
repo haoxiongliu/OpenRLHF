@@ -19,7 +19,7 @@ from os.path import join
 
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, has_statement, DEF_SIGN, split_header_body
+from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body
 from prover.agent_utils import RewardResponse, RewardRequest
 from prover.logger import logger, set_log_level
 

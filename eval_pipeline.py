@@ -6,7 +6,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.utils import extract_code, DEEPSEEK_HEADER, DEF_SIGN
+from prover.utils import extract_code, DEEPSEEK_HEADER
 from prover.constants import RECIPE2HAMMER_LIST
 from prover.logger import logger
 import torch
@@ -138,7 +138,7 @@ def main(args):
                 
                 messages.append({"role": "user", "content": template["user"].format(problem=problem, informal_prefix=informal_prefix, header=header, formal_statement=formal_statement)})            
                 messages_list.append(messages)
-                prefixes.append(f"{header}{formal_statement}".split(DEF_SIGN)[0])
+                prefixes.append(f"{header}{formal_statement}".split(":= by")[0])
                 # TODO: use model.chat to replace model_inputs
                 if args.chat_template_fp:
                     with open(args.chat_template_fp, 'r') as f:
@@ -234,9 +234,9 @@ def main(args):
                 if model_code is None:
                     full_code = None
                 else:
-                    mc_prefix_end = model_code.find(DEF_SIGN)
+                    mc_prefix_end = model_code.find(":= by")
                     if mc_prefix_end == -1:
-                        logger.debug(f"No {DEF_SIGN=} found in {extract_prefix + output}")
+                        logger.debug(f"No := by found in {extract_prefix + output}")
                         full_code = None
                     else:
                         full_code = prefix + model_code[mc_prefix_end:]

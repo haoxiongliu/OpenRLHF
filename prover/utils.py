@@ -18,7 +18,6 @@ import csv
 from typing import Optional
 from os.path import join
 
-DEF_SIGN=":="
 PROOF_START=":= by"
 HOME_DIR = os.path.expanduser('~')
 PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -128,7 +127,7 @@ def merge_code(prompt_code: str, response_code: str) -> str:
     if PROOF_START not in prompt_code or PROOF_START not in response_code:
         return ""
     prefix = prompt_code.split(PROOF_START)[0]
-    sep_pos = response_code.find(PROOF_START)  # cannot use split since response may contain multiple DEF_SIGN in the proof
+    sep_pos = response_code.find(PROOF_START)  # cannot use split
     return prefix + response_code[sep_pos:]
 
 # ybb. just remove all before </think>. if remaining part has <think>, remove all content
