@@ -187,7 +187,7 @@ class ProposalStructure(object):
                 sttm_content = line
                 while True: # exit condition is complex. using while True is easier.
                     i += 1
-                    # when we find := by, we stop
+                    # when we find := by, we stop TODO: if this line has let, we should omit it.
                     if analyzable(sttm_content) or i >= len(lines):
                         break
                     # sometimes there is no := by, we stop when <= indent occurs.

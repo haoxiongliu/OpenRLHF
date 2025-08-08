@@ -192,7 +192,8 @@ def statement_starts(snippet: str) -> bool:
 
 def analyzable(snippet: str) -> bool:
     """ending by := by. while := and by not in the same line is valid in Lean, we require in proofaug so."""
-    return re.search(r':=\s*by', snippet, re.DOTALL) is not None
+    last_line = snippet.strip().splitlines()[-1]
+    return re.search(r':=\s*by', snippet, re.DOTALL) is not None and 'let ' not in last_line
 
 def has_statement(code: str) -> bool:
     """Check if the code has any statement."""
