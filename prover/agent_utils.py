@@ -44,6 +44,7 @@ class RewardResponse(BaseModel):
     headers: list[str | None] = [None]
     proofaug_substs: list[dict | None] = [None]
     proofaug_codes: list[str | None] = [None]
+    proofaug_bodies: list[str | None] = [None]
     success_types: list[str | None] = [None]
     verify_times: list[float | None] = [None]
     search_times: list[float | None] = [None]

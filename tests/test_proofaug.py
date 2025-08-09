@@ -184,6 +184,14 @@ def test_example_simple(host: str = "localhost", port: int = 8000, n: int = 1):
     """
     test_cases = [
         {
+            "name": "pset sorry test",
+            "code": "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\ntheorem equation_solution :\n  let m : \u2124 := -1\n  let n : \u2124 := -1\n  (m^2 + n)*(m + n^2) = (m - n)^3:= by\n  sorry",
+            "expected_success_type": "pa_orig",
+            "hammer_list": ['simp'],
+            "pa_with_orig": True,
+            "step_timeout": 180,
+        },
+        {
             "name": "simplest example",
             "code": 'theorem foo: 2+3=5:= by simp',
             "expected_success_type": "original",

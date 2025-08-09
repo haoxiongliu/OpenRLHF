@@ -117,7 +117,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         pa_reward = ret_obj.pa_rewards[0]
         orig_reward = ret_obj.orig_rewards[0]
         reward = ret_obj.rewards[0] # this could include time reward and depth reward. other twos only include success type.
-        proofaug_code = ret_obj.proofaug_codes[0]
+        proofaug_body = ret_obj.proofaug_bodies[0]
         
         header = ret_obj.headers[0]
         body = ret_obj.bodies[0]
@@ -130,7 +130,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             action = f"```lean4\n{header}{body}\n```"
 
         # substitution related. in lean_reward_server we only handle "raw" reward adjustment.
-        if proofaug and proofaug_code and success_type == "proofaug" and proofaug_ans_subst:
+        if proofaug and proofaug_body and success_type == "proofaug" and proofaug_ans_subst:
             from prover.agent_utils import remove_indent
             think_start = action.find('<think>')
             think_end = action.rfind('</think>')
@@ -139,15 +139,15 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
             
             if subst_rule == "maxdepth" and (pa_depth < max(depth_thres, depth)):
                 reward = part_reward
-                logger.info(f"{subst_rule=}: {pa_depth=} < max({depth_thres}, {depth=}) => keep the original action {action=} rather than using {proofaug_code=}")
+                logger.info(f"{subst_rule=}: {pa_depth=} < max({depth_thres}, {depth=}) => keep the original action {action=} rather than using {proofaug_body=}")
                 ret_action = action            
             elif subst_rule == "ge2depth" and (pa_depth < min(2, depth)):
                 reward = part_reward
-                logger.info(f"{subst_rule=}: {pa_depth=} < min(2, {depth=}) => keep the original action {action=} rather than using {proofaug_code=}")
+                logger.info(f"{subst_rule=}: {pa_depth=} < min(2, {depth=}) => keep the original action {action=} rather than using {proofaug_body=}")
                 ret_action = action
             elif subst_rule == "keep_depth" and pa_depth < depth:
                 reward = part_reward
-                logger.info(f"{subst_rule=}: {pa_depth=} < {depth=} => keep the original action {action=} rather than using {proofaug_code=}")
+                logger.info(f"{subst_rule=}: {pa_depth=} < {depth=} => keep the original action {action=} rather than using {proofaug_body=}")
                 ret_action = action
             elif think_start != -1 and think_end != -1 and proofaug_think_mode:
                 # Keep think part unchanged, only replace lean4 code blocks outside think part
@@ -177,7 +177,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                 
                 lean4_pattern = r'```lean4\s*\n(.*?)\n```'
                 def replace_lean4_block(match):
-                    return f'```lean4\n{proofaug_code}\n```'
+                    return f'```lean4\n{proofaug_body}\n```'
                 
                 modified_after = re.sub(lean4_pattern, replace_lean4_block, after_think, flags=re.DOTALL)
                 
@@ -187,7 +187,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
                 # No think tags, replace all lean4 code blocks
                 lean4_pattern = r'```lean4\s*\n(.*?)\n```'
                 def replace_lean4_block(match):
-                    return f'```lean4\n{proofaug_code}\n```'
+                    return f'```lean4\n{proofaug_body}\n```'
                 
                 ret_action = re.sub(lean4_pattern, replace_lean4_block, action, flags=re.DOTALL)
                 logger.info(f"proofaug modification for {action=} => {ret_action=}")
