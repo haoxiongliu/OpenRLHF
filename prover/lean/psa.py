@@ -63,6 +63,7 @@ from __future__ import annotations
 from typing import Optional
 from prover.utils import remove_lean_comments, statement_starts, analyzable, n_indent, split_header_body
 from enum import StrEnum
+import re
 
 
 class BlockState(StrEnum):
@@ -135,7 +136,8 @@ class Block(object):
 
     @property
     def statement(self):
-        return self.parts[0].content.split(':=')[0]
+        return re.split(r':=\s*by', self.parts[0].content)[0]
+        # return self.parts[0].content.split(':=')[0]
 
     def _receive_block(self, block: Block):
         self.parts.append(block)
