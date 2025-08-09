@@ -234,7 +234,7 @@ def main(args):
         full_codes = []
         prompt = model_inputs[i]
         for response in model_outputs[i]:
-            full_code = extract_code_from_prq(prompt, prompt, response)
+            full_code = extract_code_from_prq(prompt, response)
             full_codes.append(full_code)
         data_list[i]["full_code"] = full_codes        
         

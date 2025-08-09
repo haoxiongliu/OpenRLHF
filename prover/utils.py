@@ -141,8 +141,9 @@ def remove_think(text: str) -> str:
     return text
 
 
-def extract_code_from_prq(query: str, prompt: str, response: str) -> Optional[str]:
+def extract_code_from_prq(prompt: str, response: str) -> Optional[str]:
     code = None
+    query = prompt + response
     if query.count("```lean4") > 1 or "<think>" in query or "<im_end>" in query:
         code_in_prompt = extract_code(prompt, omit_think=True)
         code_in_response = extract_code(response, omit_think=True)

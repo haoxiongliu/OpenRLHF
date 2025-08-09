@@ -170,8 +170,7 @@ def main(args):
     for i in tqdm(range(len(model_outputs)), desc="Creating SFT dataset"):
         prompt = model_inputs[i]
         for response in model_outputs[i]:
-            query = prompt + response
-            full_code = extract_code_from_prq(query, prompt, response)
+            full_code = extract_code_from_prq(prompt, response)
             if not full_code:
                 continue
             m_thinking = re.match(r"<think>(.*?)</think>", response, re.DOTALL)
