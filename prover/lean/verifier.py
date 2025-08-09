@@ -251,7 +251,7 @@ class Lean4ServerProcess(mp.Process):
             if non_repl:
                 raise NotImplementedError("non_repl is not implemented yet")
             
-            header, body = split_header_body(code, remove_comments=True)    # this header logic is redundant?
+            header, body = split_header_body(code, remove_comments=False)    # this header logic is redundant?
             orig_body = body
             orig_header = header
             body = body.replace("all_goals ", "")
@@ -440,16 +440,17 @@ class Lean4ServerProcess(mp.Process):
                             verify_cmd = to_command(block.proofaug_content, env=init_env, sorries=sorry_mode)
                             result_verify = self._send_command_to_repl(verify_cmd, timeout=step_timeout)
                             errors = compile_errors(result_verify)
+                            proofaug_code = orig_header + block.proofaug_content
                             if not is_complete(result_verify, block.proofaug_content):
-                                proofaug_code = orig_header + block.proofaug_content
                                 logger.warning(f"Reconstructed {proofaug_code=} is not complete with {result_verify=}, probably bug of proofaug or repl with {errors=}")
                                 if require_reconstruct:
                                     block.state = BlockState.NO_RECONSTRUCT
                             else:
-                                logger.debug(f"Verified the reconstructed proof {block.proofaug_content=}")
+                                logger.debug(f"Verified the reconstructed proof {proofaug_code=}")
                             result['verify_time'] = time.time() - start_time
                             result['proofaug_body'] = block.proofaug_content
                             result['pa_depth'] = ProposalStructure(block.proofaug_content).depth
+                            result['proofaug_code'] = proofaug_code
 
                     return ps, result
 
@@ -472,7 +473,7 @@ class Lean4ServerProcess(mp.Process):
                     "success_type": success_type,
                     "proofaug_subst": proofaug_subst,
                     "proofaug_body": result.get('proofaug_body', None),
-                    "last_result": result,
+                    "proofaug_code": result.get('proofaug_code', None),
                     "hammer_count": hammer_count,
                     "verify_time": result.get('verify_time', None), # the final proofaug verify time
                 }

@@ -6,7 +6,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.utils import extract_code, DEEPSEEK_HEADER
+from prover.utils import extract_code 
 from prover.constants import RECIPE2HAMMER_LIST
 from prover.logger import logger
 import torch
@@ -17,6 +17,7 @@ from tqdm import tqdm
 import openai
 import requests  # Add for HTTP requests to lean_reward_server
 from prover.agent_utils import RewardRequest
+from prover.utils import PROOF_PATTERN, extract_code_from_prq, DEEPSEEK_HEADER
 
 async def compile_codes_with_server(queries, args):
     """
@@ -226,20 +227,11 @@ def main(args):
         for i in range(len(data_list)):
             data_list[i]["messages"] = messages_list[i] if args.template_name else model_inputs[i]
             data_list[i]["model_outputs"] = model_outputs[i]
-            extract_prefix = str() if args.template_name else model_inputs[i]
-            prefix = prefixes[i]
+            
             full_codes = []
-            for output in model_outputs[i]:
-                model_code = extract_code(extract_prefix + output, strict=args.strict_extract)
-                if model_code is None:
-                    full_code = None
-                else:
-                    mc_prefix_end = model_code.find(":= by")
-                    if mc_prefix_end == -1:
-                        logger.debug(f"No := by found in {extract_prefix + output}")
-                        full_code = None
-                    else:
-                        full_code = prefix + model_code[mc_prefix_end:]
+            prompt = model_inputs[i]
+            for response in model_outputs[i]:
+                full_code = extract_code_from_prq(prompt, prompt, response)
                 full_codes.append(full_code)
             data_list[i]["full_code"] = full_codes
             name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]
@@ -349,7 +341,6 @@ if __name__ == "__main__":
     parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
     parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')
     parser.add_argument('--non_repl', action='store_true', default=False)
-    parser.add_argument('--strict_extract', action='store_true', default=False)
 
 
     args = parser.parse_args()

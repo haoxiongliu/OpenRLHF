@@ -7,33 +7,28 @@ Then given a messages template, which is different from eval pipeline template.
 for example, templates/dskpv2-non-cot.json.
 
 The pipeline is as follows:
-1. load seed dataset like Vivacem/pset-messages
+1. load seed dataset like Vivacem/pset-messages-140k
 2. sample 20000 subset and use kimina-1.7b and kimina template to generate content
 3. collect these content into messages and upload to huggingface
 No need to compile the code. Please remove these parts.
 Now do not support prompt field. One may wrap a new script to generate prompt according to the message content
 
 
-The current implementation is ad-hoc to Vivacem/pset-messages. TODO: make it more general.
+The current implementation is ad-hoc to Vivacem/pset-messages-140k
 """
 
 import re
 import json
 import argparse
-import asyncio
 import os
-import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.utils import extract_code, extract_code, merge_code, split_header_body, PROOF_START
-from prover.constants import RECIPE2HAMMER_LIST
+from prover.utils import extract_code, extract_code_from_prq, merge_code, split_header_body, PROOF_START, PROOF_PATTERN
 from prover.logger import logger
 import torch
 from transformers import AutoTokenizer
 from os.path import join
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-import openai
 import datasets
 from datasets import Dataset
 import random
@@ -51,133 +46,6 @@ def load_and_sample_dataset(dataset_name, sample_size=20000, split='train') -> D
     
     logger.info(f"Loaded {len(dataset)} examples")
     return dataset
-
-
-def generate_model_outputs(messages_list, model_path, tokenizer_path=None, 
-                          max_tokens=2048, temperature=0.7, top_p=0.95, 
-                          n=1, gpu=1, seed=42, gpu_memory_utilization=0.9):
-    """Generate model outputs using vLLM"""
-    
-    if not tokenizer_path:
-        tokenizer_path = model_path
-    
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
-    
-    # Prepare inputs for vLLM
-    model_inputs = []
-    for messages in messages_list:
-        text = tokenizer.apply_chat_template(
-            messages,
-            tokenize=False,
-            add_generation_prompt=True
-        )
-        model_inputs.append(text)
-    
-    # Configure sampling parameters
-    sampling_params = SamplingParams(
-        temperature=temperature,
-        max_tokens=max_tokens,
-        top_p=top_p,
-        n=n,
-        seed=seed
-    )
-    
-    # Initialize vLLM model
-    model = LLM(
-        model=model_path,
-        seed=seed,
-        trust_remote_code=True,
-        swap_space=8,
-        tensor_parallel_size=gpu,
-        gpu_memory_utilization=gpu_memory_utilization
-    )
-    
-    # Generate outputs. TODO: use dataset.map?
-    logger.info(f"Generating outputs for {len(model_inputs)} inputs")
-    vllm_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
-    
-    # Extract generated text
-    model_outputs = []
-    for vllm_output in vllm_outputs:
-        outputs = [output.text for output in vllm_output.outputs]
-        model_outputs.append(outputs)
-    
-    # Clean up
-    del model
-    torch.cuda.empty_cache()
-    
-    return model_outputs
-
-
-def create_sft_dataset(seed_ds, model_outputs, args):
-    """Create SFT dataset from generated outputs with proper message format"""
-    sft_data = []
-    output_template_path = join("templates", args.output_template_name + ".json")
-    with open(output_template_path, 'r') as f:
-        output_template = json.load(f)
-    
-    count_success = 0
-    count_total = 0
-    for i, (data_item, outputs) in enumerate(zip(seed_ds, model_outputs)):
-        for j, output in enumerate(outputs):
-            # pset-messages ad-hoc
-            count_total += 1
-            prompt_code = data_item['formal_statement']
-            m_thinking = re.match(r"<think>(.*?)</think>", output, re.DOTALL)
-            thinking = m_thinking.group(1).strip() if m_thinking else ""
-            response_code = extract_code(output, omit_think=args.remove_think)
-            if not response_code:
-                continue
-            full_code = merge_code(prompt_code, response_code)
-            if not full_code:
-                continue
-            full_code = full_code.strip()
-            header, body = split_header_body(full_code, remove_comments=False) # this header just include informal prefix
-            formal_statement = body.split(PROOF_START)[0]
-            context = {
-                "problem": data_item['informal_statement'],
-                "header": header,
-                "informal_prefix": f"/-- {data_item['informal_statement']}-/\n",
-                "formal_statement": formal_statement,  # in pset-messages it is in fact full code. we only need theorem starts
-                "thinking": thinking if not args.remove_think else "",
-                "code": full_code
-            }
-            # Create final messages array including assistant response
-            final_messages = []
-            if output_template.get("system"):
-                final_messages.append({"role": "system", "content": output_template["system"]})
-            final_messages.append({"role": "user", "content": output_template["user"].format(**context)})
-            final_messages.append({"role": "assistant", "content": output_template["assistant"].format(**context)})
-            
-            # Create SFT example
-            sft_example = {
-                'messages': final_messages,
-                'problem_id': data_item.get('problem_id', f'{i}'),
-                'metadata': {
-                    'timestamp': datetime.now().isoformat(),
-                    'generated_by': args.model_path,
-                }
-            }
-            sft_example.update(context)
-            if args.save_assistant_response:
-                sft_example['metadata'].update({'assistant_response': output})
-            
-            sft_data.append(sft_example)
-            count_success += 1
-            if args.expect_size and count_success >= args.expect_size:
-                break
-    
-    logger.info(f"Created {count_success} SFT examples in {count_total} total examples")
-    
-    # Create HuggingFace dataset directly
-    hf_dataset = Dataset.from_list(sft_data)
-    
-    # Save to JSONL
-    jsonl_path = os.path.join(args.output_dir, 'train.jsonl')
-    hf_dataset.to_json(jsonl_path, orient='records', lines=True)
-    
-    return sft_data, hf_dataset
-
 
 def upload_to_huggingface(dataset, repo_name, token=None):
     """Upload dataset to HuggingFace Hub"""
@@ -220,10 +88,11 @@ def main(args):
     logger.info("Preparing messages from template")
     with open(template_path, 'r') as f:
         template = json.load(f)
-    for data_item in tqdm(seed_ds, desc="Preparing messages"):
+    for i, data_item in tqdm(enumerate(seed_ds), desc="Preparing messages"):
         context = {
-            "problem": data_item['informal_statement'],
-            "header": "",
+            "problem": data_item['problem'],
+            "informal_prefix": data_item['informal_prefix'],
+            "header": data_item["header"],   # previous version uses different formats.
             "formal_statement": data_item['formal_statement'],
         }
         messages = []
@@ -239,26 +108,121 @@ def main(args):
     
     # Step 3: Generate model outputs
     logger.info("Generating model outputs")
-    model_outputs = generate_model_outputs(
-        messages_list=messages_list,
-        model_path=args.model_path,
-        max_tokens=args.max_tokens,
+    if not tokenizer_path:
+        tokenizer_path = args.model_path
+    
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+    
+    # Prepare inputs for vLLM
+    model_inputs = []
+    for messages in messages_list:
+        text = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+        model_inputs.append(text)
+    
+    # Configure sampling parameters
+    sampling_params = SamplingParams(
         temperature=args.temperature,
+        max_tokens=args.max_tokens,
         top_p=args.top_p,
         n=args.n,
-        gpu=args.gpu,
+        seed=args.seed
+    )
+    
+    # Initialize vLLM model
+    model = LLM(
+        model=args.model_path,
         seed=args.seed,
+        trust_remote_code=True,
+        swap_space=8,
+        tensor_parallel_size=args.gpu,
         gpu_memory_utilization=args.gpu_memory_utilization
     )
     
+    # Generate outputs. TODO: use dataset.map?
+    logger.info(f"Generating outputs for {len(model_inputs)} inputs")
+    vllm_outputs = model.generate(model_inputs, sampling_params, use_tqdm=True)
+    
+    # Extract generated text
+    model_outputs = []
+    for vllm_output in vllm_outputs:
+        outputs = [output.text for output in vllm_output.outputs]
+        model_outputs.append(outputs)
+    
+    # Clean up
+    del model
+    torch.cuda.empty_cache()
+    
+    
     # Step 4: Create SFT dataset
     logger.info("Creating SFT dataset")
-    sft_data, sft_dataset = create_sft_dataset(seed_ds, model_outputs, args)
+    # sft_data, sft_dataset = create_sft_dataset(seed_ds, model_outputs, args)
+
+    sft_data = []
+    output_template_path = join("templates", args.output_template_name + ".json")
+    with open(output_template_path, 'r') as f:
+        output_template = json.load(f)
+    
+    count_success = 0
+    for i in tqdm(range(len(model_outputs)), desc="Creating SFT dataset"):
+        prompt = model_inputs[i]
+        for response in model_outputs[i]:
+            query = prompt + response
+            full_code = extract_code_from_prq(query, prompt, response)
+            if not full_code:
+                continue
+            m_thinking = re.match(r"<think>(.*?)</think>", response, re.DOTALL)
+            thinking = m_thinking.group(1).strip() if m_thinking else ""
+            context = {
+                "problem": seed_ds[i]['problem'],
+                "header": seed_ds[i]['header'],
+                "informal_prefix": seed_ds[i]['informal_prefix'],
+                "formal_statement": seed_ds[i]['formal_statement'],  # in pset-messages it is in fact full code. we only need theorem starts
+                "thinking": thinking if not args.remove_think else "",
+                "code": full_code
+            }
+            # Create final messages array including assistant response
+            final_messages = []
+            if output_template.get("system"):
+                final_messages.append({"role": "system", "content": output_template["system"]})
+            final_messages.append({"role": "user", "content": output_template["user"].format(**context)})
+            final_messages.append({"role": "assistant", "content": output_template["assistant"].format(**context)})
+            
+            # Create SFT example
+            sft_example = {
+                'messages': final_messages,
+                'problem_id': seed_ds[i].get('problem_id', f'{i}'),
+                'metadata': {
+                    'timestamp': datetime.now().isoformat(),
+                    'generated_by': args.model_path,
+                }
+            }
+            sft_example.update(context)
+            if args.save_assistant_response:
+                sft_example['metadata'].update({'assistant_response': response})
+            
+            sft_data.append(sft_example)
+            count_success += 1
+            if args.expect_size and count_success >= args.expect_size:
+                break
+    
+    logger.info(f"Created {count_success} SFT examples from {len(model_outputs)} model outputs")
+    
+    # Create HuggingFace dataset directly
+    hf_dataset = Dataset.from_list(sft_data)
+    
+    # Save to JSONL
+    jsonl_path = os.path.join(args.output_dir, 'train.jsonl')
+    hf_dataset.to_json(jsonl_path, orient='records', lines=True)
+
     
     # Step 5: Upload to HuggingFace (optional)
     if args.upload_to_hf and args.hf_repo_name:
         logger.info("Uploading to HuggingFace")
-        upload_to_huggingface(sft_dataset, args.hf_repo_name, args.hf_token)
+        upload_to_huggingface(hf_dataset, args.hf_repo_name, args.hf_token)
     
     summary = {
         'total_examples': len(sft_data),

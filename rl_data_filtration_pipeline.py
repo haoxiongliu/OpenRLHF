@@ -23,7 +23,7 @@ import os
 import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
-from prover.utils import extract_code, DEEPSEEK_HEADER
+from prover.utils import extract_code, DEEPSEEK_HEADER, extract_code_from_prq
 from prover.constants import RECIPE2HAMMER_LIST
 from prover.logger import logger
 import torch
@@ -228,20 +228,15 @@ def main(args):
     # Step 4: Extract and compile codes
     to_inference_codes = []
     for i in range(len(data_list)):
-        prefix = prefixes[i]
+        data_list[i]["messages"] = messages_list[i] if args.template_name else model_inputs[i]
+        data_list[i]["model_outputs"] = model_outputs[i]
+        
         full_codes = []
-        for output in model_outputs[i]:
-            model_code = extract_code(output, strict=args.strict_extract)
-            if model_code is None:
-                full_code = None
-            else:
-                mc_prefix_end = model_code.find(":= by")
-                if mc_prefix_end == -1:
-                    logger.debug(f"No := by found in {output}")
-                    full_code = None
-                else:
-                    full_code = prefix + model_code[mc_prefix_end:]
+        prompt = model_inputs[i]
+        for response in model_outputs[i]:
+            full_code = extract_code_from_prq(prompt, prompt, response)
             full_codes.append(full_code)
+        data_list[i]["full_code"] = full_codes        
         
         name = data_list[i].get("problem_id", data_list[i].get("name"))
         for j, code in enumerate(full_codes):

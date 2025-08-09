@@ -17,7 +17,9 @@ import glob
 import csv
 from typing import Optional
 from os.path import join
+from prover.logger import logger
 
+PROOF_PATTERN = r"(?s)(?P<header>.*)(?P<statement>theorem .*?):= by(?P<suffix>.*)"
 PROOF_START=":= by"
 HOME_DIR = os.path.expanduser('~')
 PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -106,8 +108,6 @@ def write_as_jsonl(items: list[dict] | dict, filepath, mode='x', comple_nl=False
     if verbose:
         print(f'{len(items)} items saved to {filepath}')
 
-
-
 def extract_header(code: str) -> str:
     """
     Extract the header from the code.
@@ -140,7 +140,29 @@ def remove_think(text: str) -> str:
         text = ""
     return text
 
-def extract_code(text: str, strict: bool = False, omit_think: bool = True) -> Optional[str]:
+
+def extract_code_from_prq(query: str, prompt: str, response: str) -> Optional[str]:
+    code = None
+    if query.count("```lean4") > 1 or "<think>" in query or "<im_end>" in query:
+        code_in_prompt = extract_code(prompt, omit_think=True)
+        code_in_response = extract_code(response, omit_think=True)
+        if code_in_prompt and code_in_response:
+            m_response = re.match(PROOF_PATTERN, code_in_response)
+            m_prompt = re.match(PROOF_PATTERN, code_in_prompt)
+            if m_response is None or m_prompt is None:
+                logger.warning(f"No theorem statement found in {code_in_response=} or {code_in_prompt=}")
+            else:
+                header = m_prompt.group("header")
+                statement = m_prompt.group("statement")
+                suffix = m_response.group("suffix")
+                code = header + statement + ":= by" + suffix
+    else:
+        code = extract_code(query, omit_think=True)
+        if not re.match(PROOF_PATTERN, code):
+            code = None
+    return code
+
+def extract_code(text: str, omit_think: bool = True) -> Optional[str]:
     if omit_think:
         text = remove_think(text)
     code = None
@@ -266,7 +288,7 @@ def remove_lean_comments(code: str, normalize: bool = False) -> str:
     if normalize:
         # Remove all newlines between 'theorem' and ':='
         # First, find all 'theorem' declarations
-        theorem_pattern = re.compile(r'(theorem\s+.*?)(:=)', re.DOTALL)
+        theorem_pattern = re.compile(r'(theorem\s+.*?)(:= by)', re.DOTALL)
         
         def replace_newlines(match):
             # Replace all newlines with spaces in the matched group
@@ -281,8 +303,10 @@ def remove_lean_comments(code: str, normalize: bool = False) -> str:
     lines = [line.rstrip() for line in code_wo_comment.splitlines()]
     return "\n".join(line for line in lines if line.strip())
 
-def split_header_body(code: str, remove_comments=True):
-    """No strip, just split the code into header and body."""
+def split_header_body(code: str, remove_comments=True, strict=False):
+    """No strip, just split the code into header and body.
+    must follow PROOF_PATTERN
+    """
     # TODO: add support for more keywords, or other heuristics
     # This is ad-hoc for proofnet dataset
     if remove_comments:
@@ -290,9 +314,12 @@ def split_header_body(code: str, remove_comments=True):
         # match = re.search(r'\b(theorem|example|def exercise|def lemma)', clean_code)
     else:
         clean_code = code
-    match = re.search(r'(?<=\n)(theorem|example|def exercise|def lemma)', clean_code, re.DOTALL)
-    if match is not None:
-        header, body = clean_code[:match.start()], clean_code[match.start():]
+    m = re.match(PROOF_PATTERN, clean_code)
+    if strict:
+        if m is None:
+            raise ValueError(f"{code=} does not match the pattern {PROOF_PATTERN}")
+    if m is not None:
+        header, body = m.group("header"), m.group("statement") + PROOF_START + m.group("suffix")
     else:
         header, body = "", clean_code
     return header, body

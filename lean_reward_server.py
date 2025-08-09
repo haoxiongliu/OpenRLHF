@@ -19,7 +19,7 @@ from os.path import join
 
 
 from prover.lean.verifier import Lean4ServerScheduler
-from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body
+from prover.utils import extract_code, PROJ_DIR, DEFAULT_LAKE_PATH, DEFAULT_LEAN_WORKSPACE, DEFAULT_REPL_PATH, split_header_body, PROOF_PATTERN
 from prover.agent_utils import RewardResponse, RewardRequest
 from prover.logger import logger, set_log_level
 
@@ -96,20 +96,17 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                 mode = "chat"
                 break
 
-        prompt_pattern = r"(?s)(?P<header>.*)(?P<statement>theorem .*?):=.*"
-        response_pattern = r"(?s)(?P<header>.*)(?P<statement>theorem .*?):= by(?P<suffix>.*)"
-
         codes = []
-        theorem_statements = []
         for i in range(n):
             statement = code = None
             query = reward_request.queries[i]
             if not query:
                 pass
             elif mode == "completion":
-                code = extract_code(query)
-                if m := re.match(response_pattern, code or ""):
-                    statement = m.group("statement")
+                code = extract_code(query, omit_think=True)
+                if not re.match(PROOF_PATTERN, code or ""):
+                    logger.warning(f"{code=} not matching the pattern {PROOF_PATTERN=}")
+                    code = None
             elif mode == "chat":
                 # kimina prompt, need to extract the prefix from the prompt
                 prompt = reward_request.prompts[i]
@@ -119,8 +116,8 @@ def create_app(args: argparse.Namespace) -> FastAPI:
 
                 # The original implement fails when the informal includes, and for lemma styles + defs.
                 if code_in_response and code_in_prompt:
-                    m_response = re.match(response_pattern, code_in_response)
-                    m_prompt = re.match(prompt_pattern, code_in_prompt)
+                    m_response = re.match(PROOF_PATTERN, code_in_response)
+                    m_prompt = re.match(PROOF_PATTERN, code_in_prompt)
                     if m_response is None or m_prompt is None:
                         logger.warning(f"No theorem statement found in {code_in_response=} or {code_in_prompt=}")
                     else:
@@ -129,7 +126,6 @@ def create_app(args: argparse.Namespace) -> FastAPI:
                         suffix = m_response.group("suffix")
                         code = header + statement + ":= by" + suffix
             codes.append(code)
-            theorem_statements.append(statement)
         headers = [split_header_body(code, remove_comments=False)[0] if code is not None else "" for code in codes]
         tasks = [{
             "code": code,
@@ -151,6 +147,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         verify_times = [result.get("verify_time", None) for result in verification_results]
         search_times = [result.get("search_time", None) for result in verification_results]
         proofaug_bodies = [result.get("proofaug_body", None) for result in verification_results]
+        proofaug_codes = [result.get("proofaug_code", None) for result in verification_results]
         bodies = [result.get("body", None) for result in verification_results]
         success_types = [result.get("success_type", None) for result in verification_results]
         errorss = [result.get("errors", None) for result in verification_results]
@@ -177,16 +174,16 @@ def create_app(args: argparse.Namespace) -> FastAPI:
         average_reward = sum(rewards) / len(rewards)
         logger.debug(f"[REQ-{request_id}] Completed - Average reward: {average_reward}")
 
-        proofaug_codes = [] # prompt prefix + proofaug proof after sep
-        for i, proofaug_body in enumerate(proofaug_bodies):
-            if proofaug_body is None:
-                proofaug_codes.append(None)
-            else:
-                assert isinstance(proofaug_body, str)   # this assert it has := by, and theorem
-                statement = theorem_statements[i]
-                m_pa_body = re.match(response_pattern, proofaug_body)
-                pa_suffix = m_pa_body.group("suffix")
-                proofaug_codes.append(statement + ":= by" + pa_suffix)
+        # proofaug_codes = [] # prompt prefix + proofaug proof after sep
+        # for i, proofaug_body in enumerate(proofaug_bodies):
+        #     if proofaug_body is None:
+        #         proofaug_codes.append(None)
+        #     else:
+        #         assert isinstance(proofaug_body, str)   # this assert it has := by, and theorem
+        #         statement = theorem_statements[i]
+        #         m_pa_body = re.match(response_pattern, proofaug_body)
+        #         pa_suffix = m_pa_body.group("suffix")
+        #         proofaug_codes.append(statement + ":= by" + pa_suffix)
 
         response = RewardResponse(
             rewards=rewards,
