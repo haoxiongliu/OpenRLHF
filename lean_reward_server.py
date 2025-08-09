@@ -193,6 +193,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             headers=headers,
             proofaug_substs=proofaug_substs,
             proofaug_codes=proofaug_codes,
+            proofaug_bodies=proofaug_bodies,
             success_types=success_types,
             verify_times=verify_times,
             search_times=search_times,

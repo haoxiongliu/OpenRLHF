@@ -107,7 +107,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
 
     timeout_flag = False
     try:
-        ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs) # type: RewardResponse
+        ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs)
     except asyncio.TimeoutError:
         logger.info(f"TimeoutError: {observation+action=}")
         timeout_flag = True
