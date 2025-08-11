@@ -194,11 +194,10 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         else:
             ret_action = action
         
-        # handle depth reward here.
-                
+        # handle the structural information
         time_penalty = time_reward_ratio * min(verify_time/time_reward_threshold, 1.0)
         reward_depth = pa_depth if ret_action != action else depth
-        depth_penalty = depth_reward_ratio * max(1.0 - reward_depth*depth_reward_rate, 0.0)
+        depth_penalty = depth_reward_ratio * max(1.0 - (reward_depth - 1)*depth_reward_rate, 0.0)
         reward = max(0.0, reward - time_penalty - depth_penalty)
         orig_reward = max(0.0, orig_reward - time_penalty - depth_penalty)
         pa_reward = max(0.0, pa_reward - time_penalty - depth_penalty)

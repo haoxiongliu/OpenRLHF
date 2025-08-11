@@ -1,0 +1,11 @@
+proofaug: false # decide whether the reward to use PA reward
+record_pa_reward: true  # whether to execute PA
+proofaug_ans_subst: false # decide whether substitute
+hammer_recipe: mix6
+random_order: true
+depth_reward_ratio: 1.0
+depth_reward_rate: 1.0
+
+remote_timeout: 300
+total_timeout: 180
+step_timeout: 120
