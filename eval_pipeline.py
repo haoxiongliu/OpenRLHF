@@ -241,6 +241,9 @@ def main(args):
                 json.dump(data_list[i], f)
                 f.write('\n')
 
+    if args.only_records:
+        return
+
     # Step 2: Compile
     codes = [code["code"] for code in to_inference_codes]
     
@@ -341,6 +344,7 @@ if __name__ == "__main__":
     parser.add_argument('--lean_server_host', type=str, default='localhost', help='Lean reward server hostname')
     parser.add_argument('--lean_server_port', type=int, default=5000, help='Lean reward server port')
     parser.add_argument('--non_repl', action='store_true', default=False)
+    parser.add_argument('--only_records', action='store_true', default=False, help="only generate records")
 
 
     args = parser.parse_args()
