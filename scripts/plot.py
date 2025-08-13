@@ -13,6 +13,7 @@ import numpy as np
 from collections import defaultdict
 import ast
 from os.path import basename
+import fire
 
 def remove_seed_from_params(inference_params):
     r"""Remove seed information (-s\d+) from inference parameters"""
@@ -112,10 +113,10 @@ def aggregate_by_step(points_list):
     
     return sorted(aggregated, key=lambda x: x['step'])
 
-def main():
+def main(log_fp="results/summary.log", curve_fp="results/training_curves.png"):
     # Parse the log file
     print("Parsing summary.log...")
-    data = parse_log_file('results/summary.log')
+    data = parse_log_file(log_fp)
     print(f"Found {len(data)} entries")
     
     # Group data by model, n, and recipe (with seed-cleaned params)
@@ -170,8 +171,8 @@ def main():
         cleaned_params = remove_seed_from_params(inference_params)
         
         # Debug output
-        if inference_params != cleaned_params:
-            print(f"DEBUG Training - Original: '{inference_params}' -> Cleaned: '{cleaned_params}'")
+        # if inference_params != cleaned_params:
+        #     print(f"DEBUG Training - Original: '{inference_params}' -> Cleaned: '{cleaned_params}'")
         
         # Create a key for grouping (training_name, n, test_dataset, and cleaned inference_params)
         key = (training_name, n, test_dataset, cleaned_params)
@@ -202,11 +203,11 @@ def main():
         aggregated_data[key] = aggregate_by_step(points)
     
     # Debug output - show all grouping keys
-    print(f"\nDEBUG - Baseline grouping keys:")
+    # print(f"\nDEBUG - Baseline grouping keys:")
     for baseline_key, baseline_points in baseline_data.items():
         print(f"  {baseline_key}: {len(baseline_points)} points")
     
-    print(f"\nDEBUG - Training grouping keys:")
+    # print(f"\nDEBUG - Training grouping keys:")
     for key, points in grouped_data.items():
         print(f"  {key}: {len(points)} points")
     
@@ -364,9 +365,9 @@ def main():
     
     plt.tight_layout()
     plt.subplots_adjust(top=0.85)  # Leave space for legend on the top
-    plt.savefig('results/training_curves.png', dpi=300, bbox_inches='tight')
-    print("\nPlots saved to results/training_curves.png")
+    plt.savefig(curve_fp, dpi=300, bbox_inches='tight')
+    print(f"Plots saved to {curve_fp}")
     plt.show()
 
 if __name__ == "__main__":
-    main()
+    fire.Fire(main)
