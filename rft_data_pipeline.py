@@ -81,7 +81,7 @@ def check_pass_at_k(results, k=8):
 
 
 def main(
-    input_path="pset-messages-140k",
+    input_path="Vivace_m/pset-messages-140k",
     model_path="checkpoints/0811-q2515bi-pset10k-sft/", 
     output_dir="data/rft_pset_0811-q2515bi",
     split="train",
