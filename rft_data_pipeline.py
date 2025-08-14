@@ -82,13 +82,14 @@ def check_pass_at_k(results, k=8):
 
 def main(
     input_path="pset-messages-140k",
-    model_path="Goedel-LM/Goedel-Prover-V2-8B", 
-    output_dir="data/rft_pipeline",
+    model_path="checkpoints/0811-q2515bi-pset10k-sft/", 
+    output_dir="data/rft_pset_0811-q2515bi",
     split="train",
     n=1,
     gpu=4,
     max_size=None,
     huggingface_dataset=False,
+    template_name="dskpv2-non-cot.json",
     tokenizer=None,
     use_remote_llm=False,
     max_requests_llm=16,
@@ -97,7 +98,7 @@ def main(
     api_key=None,
     max_tokens=None,
     estimate_max_tokens=False,
-    max_model_len=32768,
+    max_model_len=4096,
     seed=1,
     temperature=1.0,
     top_p=0.95,
@@ -151,7 +152,7 @@ def main(
     tokenizer_obj = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
     
     # Load dskpv2-non-cot template (default template name as per docstring)
-    template_name = "dskpv2-non-cot.json"
+    
     with open(join("templates", template_name), mode='r') as f:
         template = json.loads(f.read())
     
