@@ -7,10 +7,11 @@ results/pset_test/0812-q2515bi-pset10k-sft-pset140k-n8-rloo-3090-bs64-mix6-remov
 
 import re
 from prover.utils import PROOF_PATTERN, load_jsonl_objects
+from prover.lean.psa import ProposalStructure
 import fire
 from collections import defaultdict
 
-def extract_line_tactic(line: str):
+def extract_line_tactic(line: str) -> list[str|None]:
     """
     Extract the tactic from the line.
     """
@@ -35,7 +36,11 @@ def main(record_fp="results/pset_test/0812-q2515bi-pset10k-sft-pset140k-n8-rloo-
         full_code = item["full_code"]
         if not PROOF_PATTERN.match(full_code):
             continue
-        body = re.match(PROOF_PATTERN, full_code).group('body')
+        m = re.match(PROOF_PATTERN, full_code)
+        if not m:
+            continue
+        body = m.group('body')
+        prop_struct = ProposalStructure(body)
         lines = body.strip().split("\n")
         for line in lines:
             tactic = extract_line_tactic(line)
