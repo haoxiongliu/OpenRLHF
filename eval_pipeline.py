@@ -72,7 +72,7 @@ def main(args):
     # Create output directory first
     # logger.setLevel(logging.DEBUG)
     os.makedirs(args.output_dir, exist_ok=True)
-    
+    model = None
     full_records_path = os.path.join(args.output_dir, 'full_records.jsonl')
     
     if args.use_existing_code:
@@ -219,8 +219,7 @@ def main(args):
             model_outputs = [[vllm_output.outputs[i].text for i in range(args.n)] for vllm_output in vllm_outputs]
             print(f"example model input:\n{model_inputs[0]}")
             print(f"example model output:\n{model_outputs[0]}")
-            del model
-            torch.cuda.empty_cache()
+
         
         to_inference_codes = []
         os.makedirs(args.output_dir, exist_ok=True)
@@ -240,6 +239,10 @@ def main(args):
             with open(full_records_path, 'a') as f:
                 json.dump(data_list[i], f)
                 f.write('\n')
+    
+        if model:
+            del model
+            torch.cuda.empty_cache()
 
     if args.only_records:
         return
