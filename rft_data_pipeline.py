@@ -2,7 +2,7 @@
 Generate the Rejection sampling or 1-step expert iteration dataset from the pset-messages-140k dataset.
 by default sample one, using default temperature 1.0. 
 Filter the pset-messages-140k dataset if the input model is not able to solve the problem in pass@k.
-For the successful problems, sample 1 from them and save the model output messages.
+For the successful problems, sample 1 from them and save the model output messages (append to the messages used to generate model outputs)
 
 default template name: dskpv2-non-cot
 
@@ -10,7 +10,7 @@ This script:
 1. Loads the pset-messages-140k dataset (from local file or HuggingFace Hub)
 2. Uses the input model to attempt solving each problem with pass@k
 3. Filters out problems that the model CANNOT solve (keeps only solvable ones)
-4. For successful problems, randomly samples 1 attempt and adds model output to messages
+4. For successful problems, randomly samples 1 attempt and adds model output to messages used to generate model outputs
 5. Outputs the filtered dataset as a HuggingFace Dataset
 """
 
@@ -83,7 +83,7 @@ def check_pass_at_k(results, k=8):
 def main(
     input_path="Vivacem/pset-messages-140k",
     model_path="checkpoints/0811-q2515bi-pset10k-sft/", 
-    output_dir="data/rft_pset_0811-q2515bi",
+    output_dir="results/sft_data/rft_pset_0811-q2515bi",
     split="train",
     n=1,
     gpu=4,
@@ -97,7 +97,7 @@ def main(
     base_url=None,
     api_key=None,
     max_tokens=None,
-    estimate_max_tokens=False,
+    estimate_max_tokens=True,
     max_model_len=4096,
     seed=1,
     temperature=1.0,
