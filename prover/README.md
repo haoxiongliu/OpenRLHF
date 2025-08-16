@@ -31,8 +31,7 @@ curl https://elan.lean-lang.org/elan-init.sh -sSf | sh
 
 cd lean-gym-repl
 lake update && lake build
-cd ..
-cd lean-gym
+cd ../lean-gym
 lake update && lake build Hammer && lake build
 cd ..
 

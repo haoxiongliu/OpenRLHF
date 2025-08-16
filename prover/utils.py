@@ -23,7 +23,8 @@ PROOF_PATTERN = r"(?s)(?P<header>.*)(?P<statement>theorem .*?):= by(?P<suffix>.*
 PROOF_START=":= by"
 HOME_DIR = os.path.expanduser('~')
 PROJ_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DEFAULT_LAKE_PATH = join(HOME_DIR, '.elan/bin/lake')
+ELAN_DIR = os.environ.get('ELAN_DIR', join(HOME_DIR, '.elan'))
+DEFAULT_LAKE_PATH = join(ELAN_DIR, 'bin/lake')
 DEFAULT_REPL_PATH = join(PROJ_DIR, 'lean-gym-repl/.lake/build/bin/repl')
 DEFAULT_LEAN_WORKSPACE= join(PROJ_DIR, 'lean-gym')
 DEEPSEEK_HEADER = "import Mathlib\nimport Aesop\n\nset_option maxHeartbeats 0\n\nopen BigOperators Real Nat Topology Rat\n\n"
