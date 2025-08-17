@@ -115,7 +115,7 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
             }
             
             if test_passed:
-                print(f"✅ Test case {i+1} PASSED")
+                print(f"✅ Test case {i+1} PASSED in time {result.get('verify_time')}")
             else:
                 print(f"❌ Test case {i+1} FAILED: {error_message}")
                 
