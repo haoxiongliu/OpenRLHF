@@ -230,7 +230,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--use_pty", action="store_true", default=True, help="Use pty mode")
     parser.add_argument("--no_use_pty", action="store_false", dest="use_pty")
-    parser.add_argument("--pty_restart_count", type=int, default=100, help="Pty restart count")
+    parser.add_argument("--pty_restart_count", type=int, default=1000, help="Pty restart count")
     parser.add_argument("--step_timeout", type=int, default=180, help="default step timeout for the lean server")
     args = parser.parse_args()
     

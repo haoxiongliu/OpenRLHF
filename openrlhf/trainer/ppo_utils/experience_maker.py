@@ -634,6 +634,28 @@ class RemoteExperienceMaker(ABC):
         orig_rewards = [experience.orig_rewards for experience in experiences]
         orig_rewards = torch.cat(orig_rewards).reshape(-1, args.n_samples_per_prompt)
 
+        # TODO: discuss on orig_rewards. maybe better not use overlong buffer.
+        if args.overlong_buffer_len is not None:
+            assert (
+                args.generate_max_len >= args.overlong_buffer_len
+            ), "generate_max_len must be larger than overlong_buffer_len"
+            overlong_buffer_len = args.overlong_buffer_len
+            expected_len = args.generate_max_len - overlong_buffer_len
+            overlong_penalty_factor = args.overlong_penalty_factor
+            # Apply penalty to each reward based on response length
+            reward_idx = 0
+            for experience in experiences:
+                response_lengths = experience.info["response_length"]
+                batch_size = len(response_lengths)
+                for j in range(batch_size):
+                    if reward_idx < len(rewards):
+                        valid_response_length = response_lengths[j]
+                        exceed_len = valid_response_length - expected_len
+                        overlong_reward = torch.min(-exceed_len / overlong_buffer_len * overlong_penalty_factor, 0)
+                        # Apply penalty to the corresponding reward in flat tensor
+                        rewards[reward_idx] += overlong_reward
+                        reward_idx += 1
+
         # log group reward std
         if args.n_samples_per_prompt > 1:
             group_reward_stds = (
