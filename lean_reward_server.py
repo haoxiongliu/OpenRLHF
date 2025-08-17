@@ -1,5 +1,6 @@
 """
 "theorem" is required in the prompt and response.
+success_type: original, pa_orig, proofaug, failed, pa_failed
 """
 
 import logging

@@ -35,9 +35,10 @@ from prover.agent_utils import RewardRequest
 from datasets import load_dataset, Dataset
 import fire
 import random
+from collections import defaultdict
 
 
-async def compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list, require_reconstruct, step_timeout, total_timeout, non_repl):
+async def compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list, require_reconstruct, step_timeout, total_timeout):
     """
     Use lean_reward_server for code compilation via HTTP requests
     """
@@ -51,7 +52,6 @@ async def compile_codes_with_server(queries, lean_server_host, lean_server_port,
         require_reconstruct=require_reconstruct,
         step_timeout=step_timeout,
         total_timeout=total_timeout,
-        non_repl=non_repl,
     ).model_dump(exclude_none=True)
     
     logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
@@ -73,67 +73,47 @@ async def compile_codes_with_server(queries, lean_server_host, lean_server_port,
     return outputs_list
 
 
-def check_pass_at_k(results, k=8):
+def check_pass_at_k(results, k=8, only_orig=False):
     """
     Check if any of the k attempts succeeded (pass@k)
     """
-    return any(result["compilation_result"]["complete"] for result in results[:k])
+    if only_orig:
+        any_pass = any(result["success_type"] == "original" for result in results[:k])
+    else:
+        any_pass = any(result["compilation_result"]["complete"] for result in results[:k])
+    return any_pass
 
 
 def main(
-    input_path="Vivacem/pset-messages-140k",
+    input_path="Vivacem/pset-messages-140k",    # or to a jsonl file
     model_path="checkpoints/0811-q2515bi-pset10k-sft/", 
     output_dir="results/sft_data/rft_pset_0811-q2515bi",
-    split="train",
-    n=1,
-    gpu=4,
-    max_size=None,
+    orig_hub: str|None = None, # "Vivacem/rft_pset_0811-q2515bi-orig"
+    pa_hub: str|None = None, # "Vivacem/rft_pset_0811-q2515bi-pa"
+    n=1, max_size=20000, 
+    gpu=4, gpu_memory_utilization=0.9,
     huggingface_dataset=False,
-    template_name="dskpv2-non-cot.json",
-    tokenizer=None,
-    use_remote_llm=False,
-    max_requests_llm=16,
-    chat_template_fp=None,
-    base_url=None,
-    api_key=None,
-    max_tokens=None,
-    estimate_max_tokens=True,
-    max_model_len=4096,
-    seed=1,
-    temperature=1.0,
-    top_p=0.95,
-    gpu_memory_utilization=0.9,
-    lean_server_host='localhost',
-    lean_server_port=5000,
-    step_timeout=None,
-    total_timeout=None,
-    proofaug=False,
-    pa_with_orig=False,
-    require_reconstruct=True,
-    non_repl=False,
-    hammer_type=None,
-    hammer_list=None,
-    hammer_recipe=None,
+    template_name="dskpv2-non-cot", tokenizer=None, chat_template_fp=None,
+    use_remote_llm=False, max_requests_llm=64, 
+    base_url=None, api_key=None, max_tokens=None, estimate_max_tokens=True, max_model_len=4096,
+    seed=1, temperature=1.0, top_p=0.95,
+    lean_server_host='localhost', lean_server_port=5000,
+    step_timeout=60, total_timeout=180,
+    proofaug=True, require_reconstruct=True,
+    hammer_type=None, hammer_list=None, hammer_recipe="mix6",
 ):
-    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
-    # Step 1: Load the dataset
-    data_list = []
-    
-    # Check if input_path is a Hugging Face dataset or a local file
+    data_list = []    
     if huggingface_dataset or (not os.path.exists(input_path) and not input_path.endswith(('.json', '.jsonl'))):
-        # Load from Hugging Face
         logger.info(f"Loading dataset from Hugging Face: {input_path}")
-        dataset = load_dataset(input_path, split=split)
-        # Convert to list and apply max_size limit
+        dataset = load_dataset(input_path, split="train")
         for i, data in enumerate(dataset):
             data_list.append(data)
             if max_size and len(data_list) >= max_size:
                 logger.info(f"Debug mode: limiting to {max_size} problems")
                 break
     else:
-        # Load from local file
         logger.info(f"Loading dataset from local file: {input_path}")
         with open(input_path, 'r') as file:
             for line in file:
@@ -147,13 +127,9 @@ def main(
     
     # Step 2: Prepare inputs using dskpv2 template and messages field
     model_inputs = []
-    prefixes = []
     tokenizer_path = tokenizer if tokenizer else model_path
     tokenizer_obj = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
-    
-    # Load dskpv2-non-cot template (default template name as per docstring)
-    
-    with open(join("templates", template_name), mode='r') as f:
+    with open(join("templates", template_name + '.json'), mode='r') as f:
         template = json.loads(f.read())
     
     messages_list = []
@@ -201,13 +177,9 @@ def main(
             chat_template=chat_template_content
         )
         model_inputs.append(text)
-        
-        # Set prefix for code extraction
-        prefixes.append(f"{header}{formal_statement}".split(":= by")[0])
     
     # Step 3: Generate solutions with pass@k
     max_input_tokens = max([len(tokenizer_obj.encode(input_text)) for input_text in model_inputs])
-    
     if estimate_max_tokens:
         max_model_len_value = max_model_len
         max_tokens_value = max_model_len_value - max_input_tokens
@@ -261,7 +233,7 @@ def main(
     logger.info(f"Generated {len(model_outputs)} sets of solutions")
     
     # Step 4: Extract and compile codes
-    to_inference_codes = []
+    to_compile_list = []
     for i in range(len(data_list)):
         data_list[i]["messages"] = messages_list[i]  # Always use messages format
         data_list[i]["model_outputs"] = model_outputs[i]
@@ -274,12 +246,11 @@ def main(
         data_list[i]["full_code"] = full_codes        
         
         name = data_list[i].get("problem_id", data_list[i].get("name"))
-        for j, code in enumerate(full_codes):
-            to_inference_codes.append({"name": name, "code": code, "data_index": i, "attempt": j})
+        for j, code in enumerate(full_codes):   # flatten
+            to_compile_list.append({"name": name, "code": code, "data_index": i, "attempt": j})
     
     # Compile all codes
-    codes = [code["code"] for code in to_inference_codes]
-    logger.info(f"Compiling {len(codes)} codes")
+    logger.info(f"Compiling {len(to_compile_list)} codes")
     
     # Set up hammer list
     hammer_list_final = None
@@ -289,75 +260,80 @@ def main(
         hammer_list_final = hammer_list
     elif hammer_type:
         hammer_list_final = [hammer_type]
-    
+
+    codes = [to_compile["code"] for to_compile in to_compile_list]
     queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
-    outputs_list = asyncio.run(compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list_final, require_reconstruct, step_timeout, total_timeout, non_repl))
+    veri_results = asyncio.run(compile_codes_with_server(
+        queries=queries, 
+        lean_server_host=lean_server_host, 
+        lean_server_port=lean_server_port, 
+        proofaug=proofaug, 
+        pa_with_orig=True, 
+        hammer_list=hammer_list_final, 
+        require_reconstruct=require_reconstruct, 
+        step_timeout=step_timeout, total_timeout=total_timeout))
     
-    for i in range(len(to_inference_codes)):
-        to_inference_codes[i]["compilation_result"] = outputs_list[i]
+    for i in range(len(to_compile_list)):
+        to_compile_list[i]["compilation_result"] = veri_results[i]
     
     # Step 5: Group results by problem and check pass@8
-    problem_results = {}
-    for result in to_inference_codes:
+    problem_results = defaultdict(list)
+    for result in to_compile_list:
         name = result["name"]
-        if name not in problem_results:
-            problem_results[name] = []
         problem_results[name].append(result)
     
     # Step 6: Filter problems - keep only those that PASSED pass@k and sample 1 from successful attempts
-    filtered_data = []
+    filtered_orig = []
+    filtered_pa = []
     total_problems = len(data_list)
-    unsolvable_count = 0
     
     for i, data in enumerate(data_list):
         name = data.get("problem_id", data.get("name"))
-        if name in problem_results:
-            # Check if this problem passes pass@k test
-            if check_pass_at_k(problem_results[name], k=n):
-                # Find successful attempts
-                successful_attempts = [result for result in problem_results[name] if result["compilation_result"]["complete"]]
-                if successful_attempts:
-                    # Sample 1 from successful attempts
-                    chosen_attempt = random.choice(successful_attempts)
-                    attempt_idx = chosen_attempt["attempt"]
-                    
-                    # Update messages to include the model output for the chosen attempt
-                    model_response = data["model_outputs"][attempt_idx]
-                    updated_messages = data["messages"] + [{"role": "assistant", "content": model_response}]
-                    data["messages"] = updated_messages
-                    
-                    # Keep this problem - model can solve it
-                    filtered_data.append(data)
-                    logger.debug(f"Problem {name} is solvable - KEEPING (chose attempt {attempt_idx})")
-                else:
-                    unsolvable_count += 1
-                    logger.info(f"Problem {name} passed but no successful attempts found - FILTERING OUT")
-            else:
-                unsolvable_count += 1
-                logger.info(f"Problem {name} is unsolvable - FILTERING OUT")
-        else:
-            # No results for this problem (likely all attempts failed) - filter it out
-            unsolvable_count += 1
-            logger.debug(f"Problem {name} had no valid attempts - FILTERING OUT")
-    
-    # Step 7: Create HuggingFace dataset
-    filtered_count = len(filtered_data)
-    logger.info(f"RFT dataset: {filtered_count}/{total_problems} problems kept (model can solve), {unsolvable_count} unsolvable problems filtered out")
+        assert name in problem_results, f"Problem {name} not found in problem_results"
+        # Check if this problem passes pass@k test
+        results = problem_results[name]
+
+        data: dict
+        data_orig = data.copy() # this is a deep copy
+        data_pa = data.copy()
+        # Find successful attempts
+        succ_idx = [result["attempt"] for result in results if result["compilation_result"]["complete"]]
+        orig_succ_idx = [result["attempt"] for result in results if result["success_type"] == "original"]
+        # Sample 1 from successful attempts
+        chosen_orig_idx = chosen_pa_idx = None
+        if orig_succ_idx:
+            chosen_orig_idx = random.choice(orig_succ_idx)
+            data_orig['messages'] = data['messages'] + [{"role": "assistant", "content": data['model_outputs'][chosen_orig_idx]}]
+            filtered_orig.append(data_orig)
+            logger.debug(f"Problem {name} is solvable - KEEPING (chose attempt {chosen_orig_idx})")
+        if succ_idx:
+            chosen_pa_idx = chosen_orig_idx if chosen_orig_idx is not None else random.choice(succ_idx)
+            data_pa['messages'] = data['messages'] + [{"role": "assistant", "content": data['model_outputs'][chosen_pa_idx]}]
+            filtered_pa.append(data_pa)
+            logger.debug(f"Problem {name} is solvable - KEEPING (chose attempt {chosen_pa_idx})")
+
+
+    logger.info(f"RFT dataset: {len(filtered_orig)=}, {len(filtered_pa)=}, {total_problems=}")
     
     # Create and save HuggingFace dataset
-    if filtered_data:
-        rft_dataset = Dataset.from_list(filtered_data)
-        dataset_path = os.path.join(output_dir, 'rft_dataset')
-        rft_dataset.save_to_disk(dataset_path)
-        logger.info(f"RFT dataset saved to: {dataset_path}")
-    else:
-        logger.warning("No problems passed the filter - no dataset created")
-        dataset_path = None
+    rft_pa = Dataset.from_list(filtered_pa)
+    rft_orig = Dataset.from_list(filtered_orig)
+    pa_path = os.path.join(output_dir, 'rft_pa')
+    orig_path = os.path.join(output_dir, 'rft_orig')
+    rft_pa.save_to_disk(pa_path)
+    rft_orig.save_to_disk(orig_path)
+    logger.info(f"RFT dataset saved to: {pa_path}")
+    logger.info(f"RFT dataset saved to: {orig_path}")
+    if orig_hub:
+        rft_pa.push_to_hub(pa_hub)
+        rft_orig.push_to_hub(orig_hub)
+        logger.info(f"RFT dataset pushed to HuggingFace: {pa_hub}")
+        logger.info(f"RFT dataset pushed to HuggingFace: {orig_hub}")
     
     # Save compilation results for analysis
     compilation_path = os.path.join(output_dir, 'compilation_results.json')
     with open(compilation_path, 'w') as f:
-        json.dump(to_inference_codes, f, indent=4)
+        json.dump(to_compile_list, f, indent=4)
     
     # Save summary
     is_huggingface = huggingface_dataset or (not os.path.exists(input_path) and not input_path.endswith(('.json', '.jsonl')))
@@ -365,32 +341,25 @@ def main(
         "model": model_path,
         "input_path": input_path,
         "dataset_source": "huggingface" if is_huggingface else "local_file",
-        "split": split,
         "total_problems": total_problems,
-        "unsolvable_problems": unsolvable_count,
-        "filtered_problems": filtered_count,
+        "filtered_orig": len(filtered_orig),
+        "filtered_pa": len(filtered_pa),
         "pass_at_k": n,
-        "max_size_debug": max_size,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "output_path": dataset_path,
+        "pa_output_path": pa_path,
+        "orig_output_path": orig_path,
+        "pa_hub": pa_hub,
+        "orig_hub": orig_hub,
         "compilation_path": compilation_path
     }
-    
     summary_path = os.path.join(output_dir, 'rft_pipeline_summary.json')
     with open(summary_path, 'w') as f:
         json.dump(summary, f, indent=4)
+    logger.info(f"RFT data pipeline complete!")
+    logger.info(f"Total problems: {total_problems} with {max_size=}")
+    logger.info(f"Summary saved to: {summary_path}")
     
-    print(f"RFT data pipeline complete!")
-    if max_size:
-        print(f"DEBUG MODE: Limited to {max_size} problems")
-    print(f"Total problems: {total_problems}")
-    print(f"Unsolvable problems (filtered out): {unsolvable_count}")
-    print(f"Solvable problems (kept): {filtered_count}")
-    if dataset_path:
-        print(f"RFT dataset saved to: {dataset_path}")
-    print(f"Summary saved to: {summary_path}")
-    
-    return rft_dataset if filtered_data else None
+    return
 
 
 if __name__ == "__main__":
