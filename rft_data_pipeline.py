@@ -299,8 +299,11 @@ def main(
     
     # Create and save HuggingFace dataset
     rft_pa, rft_orig = Dataset.from_list(filtered_pa), Dataset.from_list(filtered_orig)
-    rft_pa = rft_pa.remove_columns(["model_outpus", "full_code", "non-cot-messages", "informal_statement"])
-    rft_orig = rft_orig.remove_columns(["model_outpus", "full_code", "non-cot-messages", "informal_statement"])
+    orig_columns = rft_pa.column_names
+    to_remove = ["model_outputs", "full_code", "non-cot-messages", "informal_statement"]
+    to_remove = [col for col in to_remove if col in orig_columns]
+    rft_pa = rft_pa.remove_columns(to_remove)
+    rft_orig = rft_orig.remove_columns(to_remove)
     pa_path, orig_path = os.path.join(output_dir, 'rft_pa'), os.path.join(output_dir, 'rft_orig')
     rft_pa.save_to_disk(pa_path)
     rft_orig.save_to_disk(orig_path)
