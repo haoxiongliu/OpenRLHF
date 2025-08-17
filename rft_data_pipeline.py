@@ -72,14 +72,14 @@ def check_pass_at_k(results, k=8, only_orig=False):
 
 
 def main(
-    input_path="Vivacem/pset-messages-140k",    # or to a jsonl file
+    input_path="Vivacem/pset-messages-140k",    # only support hf now
     model_path="checkpoints/0811-q2515bi-pset10k-sft/", 
     output_dir="results/sft_data/rft_pset_0811-q2515bi",
     orig_hub: str|None = None, # "Vivacem/rft_pset_0811-q2515bi-orig"
     pa_hub: str|None = None, # "Vivacem/rft_pset_0811-q2515bi-pa"
+    messages_field: str = "non-cot-messages",
     n=1, max_size=20000, shuffle=False,
     gpu=4, gpu_memory_utilization=0.9,
-    huggingface_dataset=False,
     template_name="dskpv2-non-cot", tokenizer=None, chat_template_fp=None,
     use_remote_llm=False, max_requests_llm=64, 
     base_url=None, api_key=None, 
@@ -94,28 +94,13 @@ def main(
     os.makedirs(output_dir, exist_ok=True)
     
     data_list : list[dict] = []
-    if huggingface_dataset or (not os.path.exists(input_path) and not input_path.endswith(('.json', '.jsonl'))):
-        logger.info(f"Loading dataset from Hugging Face: {input_path}")
-        dataset = load_dataset(input_path, split="train")
-        if shuffle:
-            dataset = dataset.shuffle()
-        for i, data in enumerate(dataset):
-            data_list.append(data)
-            if max_size and len(data_list) >= max_size:
-                logger.info(f"Debug mode: limiting to {max_size} problems")
-                break
-    else:
-        logger.info(f"Loading dataset from local file: {input_path}")
-        with open(input_path, 'r') as file:
-            for line in file:
-                data = json.loads(line)
-                data_list.append(data)
-        if shuffle:
-            random.shuffle(data_list)
-        if max_size and len(data_list) >= max_size:
-            logger.info(f"Debug mode: limiting to {max_size} problems")
-            data_list = data_list[:max_size]
-    
+    dataset = load_dataset(input_path, split="train")
+    if shuffle:
+        dataset = dataset.shuffle()
+    to_remove_first = ["messages", "non-cot-messages"]
+    to_remove_first = [col for col in to_remove_first if col in dataset.column_names]
+    dataset = dataset.remove_columns(to_remove_first)
+    data_list = dataset.select(range(min(max_size, len(dataset))))
     logger.info(f"Loaded {len(data_list)} problems from {input_path}")
     
     # Step 2: Prepare inputs using dskpv2 template and messages field
@@ -231,7 +216,7 @@ def main(
     # Step 4: Extract and compile codes
     flat_items = []
     for i in range(len(data_list)):
-        data_list[i]["messages"] = messages_list[i]  # Always use messages format
+        data_list[i][messages_field] = messages_list[i]  # Always use messages format
         data_list[i]["model_outputs"] = model_outputs[i]
         full_codes = []
         prompt = model_inputs[i]
@@ -288,20 +273,19 @@ def main(
         chosen_orig_idx = chosen_pa_idx = None
         if orig_succ_idx:
             chosen_orig_idx = random.choice(orig_succ_idx)
-            data_orig['messages'] = data['messages'] + [{"role": "assistant", "content": data['model_outputs'][chosen_orig_idx]}]
+            data_orig[messages_field] = data[messages_field] + [{"role": "assistant", "content": data['model_outputs'][chosen_orig_idx]}]
             filtered_orig.append(data_orig)
         if succ_idx:
             chosen_pa_idx = chosen_orig_idx if chosen_orig_idx is not None else random.choice(succ_idx)
-            data_pa['messages'] = data['messages'] + [{"role": "assistant", "content": data['model_outputs'][chosen_pa_idx]}]
+            data_pa[messages_field] = data[messages_field] + [{"role": "assistant", "content": data['model_outputs'][chosen_pa_idx]}]
             filtered_pa.append(data_pa)
 
     logger.info(f"RFT dataset: {len(filtered_orig)=}, {len(filtered_pa)=}, {total_num=}")
     
     # Create and save HuggingFace dataset
     rft_pa, rft_orig = Dataset.from_list(filtered_pa), Dataset.from_list(filtered_orig)
-    orig_columns = rft_pa.column_names
-    to_remove = ["model_outputs", "full_code", "non-cot-messages", "informal_statement"]
-    to_remove = [col for col in to_remove if col in orig_columns]
+    to_remove = ["model_outputs", "full_code", "informal_statement"]
+    to_remove = [col for col in to_remove if col in rft_pa.column_names]
     rft_pa = rft_pa.remove_columns(to_remove)
     rft_orig = rft_orig.remove_columns(to_remove)
     pa_path, orig_path = os.path.join(output_dir, 'rft_pa'), os.path.join(output_dir, 'rft_orig')
@@ -321,14 +305,13 @@ def main(
         json.dump(flat_items, f, indent=4)
     
     # Save summary
-    is_huggingface = huggingface_dataset or (not os.path.exists(input_path) and not input_path.endswith(('.json', '.jsonl')))
     summary = {
         "model": model_path,
         "input_path": input_path,
-        "dataset_source": "huggingface" if is_huggingface else "local_file",
         "total_num": total_num,
         "filtered_orig": len(filtered_orig),
         "filtered_pa": len(filtered_pa),
+        "messages_field": messages_field,
         "pass_at_k": n,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "pa_output_path": pa_path,
