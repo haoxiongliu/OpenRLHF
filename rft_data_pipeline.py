@@ -93,14 +93,14 @@ def main(
 ):
     os.makedirs(output_dir, exist_ok=True)
     
-    data_list : list[dict] = []
     dataset = load_dataset(input_path, split="train")
     if shuffle:
         dataset = dataset.shuffle()
     to_remove_first = ["messages", "non-cot-messages"]
     to_remove_first = [col for col in to_remove_first if col in dataset.column_names]
     dataset = dataset.remove_columns(to_remove_first)
-    data_list = dataset.select(range(min(max_size, len(dataset))))
+    # to_list() is necessary since indexing a dataset returns a copy
+    data_list: list[dict] = dataset.select(range(min(max_size, len(dataset)))).to_list()
     logger.info(f"Loaded {len(data_list)} problems from {input_path}")
     
     # Step 2: Prepare inputs using dskpv2 template and messages field
@@ -110,7 +110,7 @@ def main(
     with open(join("templates", template_name + '.json'), mode='r') as f:
         template = json.loads(f.read())
     
-    messages_list = []
+    messages_list : list[list[dict]] = []
     for data in data_list:
         # Extract fields needed for template construction
         header = data.get('header', DEEPSEEK_HEADER)
@@ -127,7 +127,7 @@ def main(
             problem = '[[Informal problem is not available]]'
         
         # Construct messages using dskpv2 template (DO NOT use dataset messages field)
-        messages = []
+        messages : list[dict] = []
         if template.get("system"):
             messages.append({"role": "system", "content": template["system"]})
         
@@ -250,10 +250,10 @@ def main(
     )
     for i in range(len(flat_items)):
         flat_items[i]["success_type"] = compile_response.success_types[i]
-    name2item = defaultdict(list)
+    name2items = defaultdict(list)
     for flat_item in flat_items:
         name = flat_item["name"]
-        name2item[name].append(flat_item)
+        name2items[name].append(flat_item)
         
     filtered_orig = []
     filtered_pa = []
@@ -261,9 +261,9 @@ def main(
     for i, data in enumerate(data_list):
         name = data.get("problem_id", data.get("name"))
         data["name"] = name
-        assert name in name2item, f"Problem {name} not found in name2item"
-        items = name2item[name]
-
+        assert name in name2items, f"Problem {name} not found in name2items"
+        items = name2items[name]
+        # assert messages_field in data, f"{messages_field=} not found in data"
         data_orig = data.copy() # this is a deep copy
         data_pa = data.copy()
         # Find successful attempts
