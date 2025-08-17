@@ -95,6 +95,8 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
                 result['proofaug_code'] = result['proofaug_codes']
             if 'verify_times' in result:
                 result['verify_time'] = result['verify_times']
+            if 'search_times' in result:
+                result['search_time'] = result['search_times']
             
             # Default assertion
             test_passed = True
@@ -117,7 +119,7 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
             }
             elpased_time = time.time() - start_time
             if test_passed:
-                print(f"✅ Test case {i+1} PASSED in {result.get('verify_time'):.5f}s and elapsed time {elpased_time:.5f}s")
+                print(f"✅ Test case {i+1} PASSED in {result.get('verify_time'):.5f}s, {result.get('search_time'):.5f} search time and elapsed time {elpased_time:.5f}s")
             else:
                 print(f"❌ Test case {i+1} FAILED: {error_message}")
                 
