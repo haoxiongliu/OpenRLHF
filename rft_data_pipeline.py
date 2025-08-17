@@ -16,7 +16,7 @@ This script:
 
 import re
 import json
-import asyncio
+
 import os
 from datetime import datetime
 from vllm import LLM, SamplingParams
@@ -33,10 +33,10 @@ from datasets import load_dataset, Dataset
 import fire
 import random
 from collections import defaultdict
-import aiohttp
+import requests
 from prover.agent_utils import RewardResponse, RewardRequest
 
-async def compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list, require_reconstruct, step_timeout, total_timeout, remote_timeout=180):
+def compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list, require_reconstruct, step_timeout, total_timeout):
     """
     Use lean_reward_server for code compilation via HTTP requests
     """
@@ -51,11 +51,11 @@ async def compile_codes_with_server(queries, lean_server_host, lean_server_port,
         step_timeout=step_timeout,
         total_timeout=total_timeout,
     ).model_dump(exclude_none=True)
-    async with aiohttp.ClientSession() as session:
-        async with session.post(server_url, json=request_data, headers={"Content-Type": "application/json"}, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
-            response.raise_for_status()
-            results = await response.json()
-            results = RewardResponse(**results)
+    
+    response = requests.post(server_url, json=request_data, headers={"Content-Type": "application/json"})
+    response.raise_for_status()
+    results = response.json()
+    results = RewardResponse(**results)
 
     return results
 
@@ -238,7 +238,7 @@ def main(
         hammer_list_final = [hammer_type]
     codes = [item["code"] for item in flat_items]
     queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
-    compile_response = asyncio.run(compile_codes_with_server(
+    compile_response = compile_codes_with_server(
         queries=queries, 
         lean_server_host=lean_server_host, 
         lean_server_port=lean_server_port, 
@@ -246,7 +246,7 @@ def main(
         pa_with_orig=True, 
         hammer_list=hammer_list_final, 
         require_reconstruct=require_reconstruct, 
-        step_timeout=step_timeout, total_timeout=total_timeout)
+        step_timeout=step_timeout, total_timeout=total_timeout
     )
     for i in range(len(flat_items)):
         flat_items[i]["success_type"] = compile_response.success_types[i]
