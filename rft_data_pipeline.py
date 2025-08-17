@@ -18,7 +18,6 @@ import re
 import json
 import asyncio
 import os
-import pandas as pd
 from datetime import datetime
 from vllm import LLM, SamplingParams
 from prover.utils import extract_code, DEEPSEEK_HEADER, extract_code_from_prq
@@ -30,19 +29,18 @@ from os.path import join
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import openai
-import requests
-from prover.agent_utils import RewardRequest
 from datasets import load_dataset, Dataset
 import fire
 import random
 from collections import defaultdict
+import aiohttp
+from prover.agent_utils import RewardResponse, RewardRequest
 
-
-async def compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list, require_reconstruct, step_timeout, total_timeout):
+async def compile_codes_with_server(queries, lean_server_host, lean_server_port, proofaug, pa_with_orig, hammer_list, require_reconstruct, step_timeout, total_timeout, remote_timeout=180):
     """
     Use lean_reward_server for code compilation via HTTP requests
     """
-    server_url = f"http://{lean_server_host}:{lean_server_port}"
+    server_url = f"http://{lean_server_host}:{lean_server_port}/reward"
     # Prepare request data in the format expected by lean_reward_server
     request_data = RewardRequest(
         queries=queries,  # Send codes as queries in completion mode
@@ -53,24 +51,13 @@ async def compile_codes_with_server(queries, lean_server_host, lean_server_port,
         step_timeout=step_timeout,
         total_timeout=total_timeout,
     ).model_dump(exclude_none=True)
-    
-    logger.info(f"Sending {len(queries)} codes to lean_reward_server at {server_url}")
-    response = requests.post(
-        f"{server_url}/reward",
-        json=request_data,
-    )
-    response.raise_for_status()
-    results = response.json()
-    
-    # Convert server response to the format expected by eval_pipeline
-    outputs_list = []
-    for i in range(len(queries)):
-        verification_result = {k: v[i] for k, v in results.items()}
-        verification_result["complete"] = verification_result["rewards"] > 0
-        outputs_list.append(verification_result)
-    
-    logger.info(f"Received results from lean_reward_server: {sum(results['rewards'])} successful out of {len(queries)}")
-    return outputs_list
+    async with aiohttp.ClientSession() as session:
+        async with session.post(server_url, json=request_data, headers={"Content-Type": "application/json"}, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:
+            response.raise_for_status()
+            results = await response.json()
+            results = RewardResponse(**results)
+
+    return results
 
 
 def check_pass_at_k(results, k=8, only_orig=False):
@@ -78,7 +65,7 @@ def check_pass_at_k(results, k=8, only_orig=False):
     Check if any of the k attempts succeeded (pass@k)
     """
     if only_orig:
-        any_pass = any(result["success_type"] == "original" for result in results[:k])
+        any_pass = any(result["success_types"] == "original" for result in results[:k])
     else:
         any_pass = any(result["compilation_result"]["complete"] for result in results[:k])
     return any_pass
@@ -90,7 +77,7 @@ def main(
     output_dir="results/sft_data/rft_pset_0811-q2515bi",
     orig_hub: str|None = None, # "Vivacem/rft_pset_0811-q2515bi-orig"
     pa_hub: str|None = None, # "Vivacem/rft_pset_0811-q2515bi-pa"
-    n=1, max_size=20000, 
+    n=1, max_size=20000, shuffle=False,
     gpu=4, gpu_memory_utilization=0.9,
     huggingface_dataset=False,
     template_name="dskpv2-non-cot", tokenizer=None, chat_template_fp=None,
@@ -110,6 +97,8 @@ def main(
     if huggingface_dataset or (not os.path.exists(input_path) and not input_path.endswith(('.json', '.jsonl'))):
         logger.info(f"Loading dataset from Hugging Face: {input_path}")
         dataset = load_dataset(input_path, split="train")
+        if shuffle:
+            dataset = dataset.shuffle()
         for i, data in enumerate(dataset):
             data_list.append(data)
             if max_size and len(data_list) >= max_size:
@@ -121,9 +110,11 @@ def main(
             for line in file:
                 data = json.loads(line)
                 data_list.append(data)
-                if max_size and len(data_list) >= max_size:
-                    logger.info(f"Debug mode: limiting to {max_size} problems")
-                    break
+        if shuffle:
+            random.shuffle(data_list)
+        if max_size and len(data_list) >= max_size:
+            logger.info(f"Debug mode: limiting to {max_size} problems")
+            data_list = data_list[:max_size]
     
     logger.info(f"Loaded {len(data_list)} problems from {input_path}")
     
@@ -238,7 +229,7 @@ def main(
     logger.info(f"Generated {len(model_outputs)} sets of solutions")
     
     # Step 4: Extract and compile codes
-    to_compile_list = []
+    flat_data = []
     for i in range(len(data_list)):
         data_list[i]["messages"] = messages_list[i]  # Always use messages format
         data_list[i]["model_outputs"] = model_outputs[i]
@@ -251,11 +242,11 @@ def main(
         data_list[i]["full_code"] = full_codes        
         
         name = data_list[i].get("problem_id", data_list[i].get("name"))
-        for j, code in enumerate(full_codes):   # flatten
-            to_compile_list.append({"name": name, "code": code, "data_index": i, "attempt": j})
+        for j, code in enumerate(full_codes):   # flattened
+            flat_data.append({"name": name, "code": code, "data_index": i, "attempt": j})
     
     # Compile all codes
-    logger.info(f"Compiling {len(to_compile_list)} codes")
+    logger.info(f"Compiling {len(flat_data)} codes")
     
     # Set up hammer list
     hammer_list_final = None
@@ -266,9 +257,9 @@ def main(
     elif hammer_type:
         hammer_list_final = [hammer_type]
 
-    codes = [to_compile["code"] for to_compile in to_compile_list]
+    codes = [item["code"] for item in flat_data]
     queries = [f"```lean4\n{code}\n```" if code else "" for code in codes]
-    veri_results = asyncio.run(compile_codes_with_server(
+    compile_response = asyncio.run(compile_codes_with_server(
         queries=queries, 
         lean_server_host=lean_server_host, 
         lean_server_port=lean_server_port, 
@@ -276,16 +267,17 @@ def main(
         pa_with_orig=True, 
         hammer_list=hammer_list_final, 
         require_reconstruct=require_reconstruct, 
-        step_timeout=step_timeout, total_timeout=total_timeout))
+        step_timeout=step_timeout, total_timeout=total_timeout)
+    )
     
-    for i in range(len(to_compile_list)):
-        to_compile_list[i]["compilation_result"] = veri_results[i]
+    for i in range(len(flat_data)):
+        flat_data[i]["success_type"] = compile_response.success_types[i]
     
     # Step 5: Group results by problem and check pass@8
-    problem_results = defaultdict(list)
-    for result in to_compile_list:
+    name2results = defaultdict(list)
+    for result in flat_data:
         name = result["name"]
-        problem_results[name].append(result)
+        name2results[name].append(result)
     
     # Step 6: Filter problems - keep only those that PASSED pass@k and sample 1 from successful attempts
     filtered_orig = []
@@ -294,16 +286,16 @@ def main(
     
     for i, data in enumerate(data_list):
         name = data.get("problem_id", data.get("name"))
-        assert name in problem_results, f"Problem {name} not found in problem_results"
+        assert name in name2results, f"Problem {name} not found in problem_results"
         # Check if this problem passes pass@k test
-        results = problem_results[name]
+        results = name2results[name]
 
         data: dict
         data_orig = data.copy() # this is a deep copy
         data_pa = data.copy()
         # Find successful attempts
         succ_idx = [result["attempt"] for result in results if result["compilation_result"]["complete"]]
-        orig_succ_idx = [result["attempt"] for result in results if result["success_type"] == "original"]
+        orig_succ_idx = [result["attempt"] for result in results if result["success_types"] == "original"]
         # Sample 1 from successful attempts
         chosen_orig_idx = chosen_pa_idx = None
         if orig_succ_idx:
@@ -316,7 +308,6 @@ def main(
             data_pa['messages'] = data['messages'] + [{"role": "assistant", "content": data['model_outputs'][chosen_pa_idx]}]
             filtered_pa.append(data_pa)
             logger.debug(f"Problem {name} is solvable - KEEPING (chose attempt {chosen_pa_idx})")
-
 
     logger.info(f"RFT dataset: {len(filtered_orig)=}, {len(filtered_pa)=}, {total_problems=}")
     
@@ -338,7 +329,7 @@ def main(
     # Save compilation results for analysis
     compilation_path = os.path.join(output_dir, 'compilation_results.json')
     with open(compilation_path, 'w') as f:
-        json.dump(to_compile_list, f, indent=4)
+        json.dump(flat_data, f, indent=4)
     
     # Save summary
     is_huggingface = huggingface_dataset or (not os.path.exists(input_path) and not input_path.endswith(('.json', '.jsonl')))
