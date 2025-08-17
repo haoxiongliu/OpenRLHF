@@ -95,7 +95,9 @@ def main(
     huggingface_dataset=False,
     template_name="dskpv2-non-cot", tokenizer=None, chat_template_fp=None,
     use_remote_llm=False, max_requests_llm=64, 
-    base_url=None, api_key=None, max_tokens=None, estimate_max_tokens=True, max_model_len=4096,
+    base_url=None, api_key=None, 
+    max_tokens=None, max_model_len=4096,
+    estimate_max_tokens=True, max_prompt_len=1024,
     seed=1, temperature=1.0, top_p=0.95,
     lean_server_host='localhost', lean_server_port=5000,
     step_timeout=60, total_timeout=180,
@@ -180,6 +182,9 @@ def main(
     
     # Step 3: Generate solutions with pass@k
     max_input_tokens = max([len(tokenizer_obj.encode(input_text)) for input_text in model_inputs])
+    if max_prompt_len:
+        max_input_tokens = min(max_input_tokens, max_prompt_len)
+    
     if estimate_max_tokens:
         max_model_len_value = max_model_len
         max_tokens_value = max_model_len_value - max_input_tokens
