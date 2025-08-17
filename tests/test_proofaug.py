@@ -69,12 +69,14 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
         try:
             # Send request to lean_reward_server
             print(f"  Sending request to {server_url}/reward")
+            request_start_time = time.time()
             response = requests.post(
                 f"{server_url}/reward",
                 json=request_data,
                 timeout=step_timeout + 30  # Add extra time for HTTP timeout
             )
             response.raise_for_status()
+            request_elapsed_time = time.time() - request_start_time
             server_result = response.json()
             
             # Extract result for the single query (index 0)
@@ -117,7 +119,7 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
             }
             elpased_time = time.time() - start_time
             if test_passed:
-                print(f"✅ Test case {i+1} PASSED in {result.get('verify_time'):.5f}s and elapsed time {elpased_time:.5f}s")
+                print(f"✅ Test case {i+1} PASSED in {result.get('verify_time'):.5f}s and elapsed time {elpased_time:.5f}s and elapsed request time {request_elapsed_time:.5f}s")
             else:
                 print(f"❌ Test case {i+1} FAILED: {error_message}")
                 
