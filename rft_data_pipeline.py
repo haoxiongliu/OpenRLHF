@@ -275,7 +275,8 @@ def main(
     total_num = len(data_list)
     for i, data in enumerate(data_list):
         name = data.get("problem_id", data.get("name"))
-        assert name in name2item, f"Problem {name} not found in problem_results"
+        data["name"] = name
+        assert name in name2item, f"Problem {name} not found in name2item"
         items = name2item[name]
 
         data_orig = data.copy() # this is a deep copy
@@ -298,6 +299,8 @@ def main(
     
     # Create and save HuggingFace dataset
     rft_pa, rft_orig = Dataset.from_list(filtered_pa), Dataset.from_list(filtered_orig)
+    rft_pa = rft_pa.remove_columns(["model_outpus", "full_code", "non-cot-messages", "informal_statement"])
+    rft_orig = rft_orig.remove_columns(["model_outpus", "full_code", "non-cot-messages", "informal_statement"])
     pa_path, orig_path = os.path.join(output_dir, 'rft_pa'), os.path.join(output_dir, 'rft_orig')
     rft_pa.save_to_disk(pa_path)
     rft_orig.save_to_disk(orig_path)
