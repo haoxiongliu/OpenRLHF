@@ -10,6 +10,7 @@ import os
 import json
 import datetime
 import requests
+import time
 from typing import Optional, List, Dict, Any
 
 # Add project root directory to Python path so we can import prover module
@@ -43,6 +44,7 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
     server_url = f"http://{host}:{port}"
     
     for i, test_case in enumerate(test_cases):
+        start_time = time.time()
         print(f"Running test case {i+1}/{len(test_cases)}: {test_case.get('name', f'Test_{i+1}')}")
         
         # Set up defaults
@@ -113,9 +115,9 @@ def handle_cases(test_cases: List[Dict[str, Any]], custom_assert_fn=None, host: 
                 'result': result,
                 'error_message': error_message
             }
-            
+            elpased_time = time.time() - start_time
             if test_passed:
-                print(f"✅ Test case {i+1} PASSED in time {result.get('verify_time')}")
+                print(f"✅ Test case {i+1} PASSED in {result.get('verify_time'):.5f}s and elapsed time {elpased_time:.5f}s")
             else:
                 print(f"❌ Test case {i+1} FAILED: {error_message}")
                 
