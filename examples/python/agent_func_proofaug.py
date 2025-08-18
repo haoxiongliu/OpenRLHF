@@ -99,7 +99,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     depth_thres = proofaug_config.get("depth_thres", None)
     proofaug_think_mode = proofaug_config.get("proofaug_think_mode", None)
     code_only = proofaug_config.get("code_only", False)
-    part_reward = proofaug_config.get("part_reward", 0.5)
+    part_reward = proofaug_config.get("part_reward", 0.0)
     time_reward_ratio = proofaug_config.get("time_reward_ratio", 0.0)
     time_reward_threshold = proofaug_config.get("time_reward_threshold", 120.0)
     depth_reward_ratio = proofaug_config.get("depth_reward_ratio", 0.0)

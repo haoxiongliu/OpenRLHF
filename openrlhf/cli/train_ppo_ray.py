@@ -327,6 +327,7 @@ if __name__ == "__main__":
     parser.add_argument("--eps_clip", type=float, default=0.2, help="PPO clip range")
     parser.add_argument("--eps_clip_low_high", type=float, nargs=2, default=None, help="PPO-clip low and high")
     parser.add_argument("--value_clip", type=float, default=0.5, help="PPO value clip range")
+    parser.add_argument("--old_prob_clip", action="store_true", default=False, help="use old prob clip. no longer Ratio Clip.")
     parser.add_argument("--lambd", type=float, default=1, help="PPO GAE lambd")
     parser.add_argument("--gamma", type=float, default=1, help="PPO GAE gamma")
     parser.add_argument("--micro_train_batch_size", type=int, default=4, help="batch size per GPU")
