@@ -52,6 +52,7 @@ async def step(observation, action, label, **kwargs) -> Dict[str, Any]:
 
     return {
         "rewards": reward,  # Rewards for advantage calculation
+        "orig_rewards": reward,  # Original rewards for baseline estimation
         "scores": reward,  # Scores for dynamic filtering (0-1 reward)
         "next_observation": next_observation,  # The updated observation for vLLM inference in next step
         "done": done,  # Boolean indicating if the episode is complete

@@ -18,7 +18,7 @@ def filter_log_file(pattern, input_file="results/summary.log"):
         input_file (str): Path to input log file
         output_filtered (str): Path to output file for lines WITHOUT the pattern
         output_excluded (str): Path to output file for lines WITH the pattern
-        pattern (str): Pattern to filter out
+        pattern (str):g Pattern to filter out
     """
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
