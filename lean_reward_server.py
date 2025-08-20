@@ -140,6 +140,7 @@ def create_app(args: argparse.Namespace) -> FastAPI:
             "total_timeout": reward_request.total_timeout,
             "pa_with_orig": reward_request.pa_with_orig,
             "non_repl": reward_request.non_repl,
+            "no_truncate": reward_request.no_truncate,
         } for code in codes]
         
         verification_request_ids = scheduler.submit_all_request(tasks)

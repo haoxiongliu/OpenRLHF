@@ -38,6 +38,7 @@ async def call_remote_reward_model(
     time_reward_threshold = proofaug_config.get("time_reward_threshold", 120.0)
     depth_reward_ratio = proofaug_config.get("depth_reward_ratio", 0.0)
     depth_reward_rate = proofaug_config.get("depth_reward_rate", 0.25)
+    no_truncate = proofaug_config.get("no_truncate", False)
     
     headers = {"Content-Type": "application/json"}
     if isinstance(queries, str):
@@ -63,6 +64,7 @@ async def call_remote_reward_model(
         time_reward_threshold=time_reward_threshold,
         depth_reward_ratio=depth_reward_ratio,
         depth_reward_rate=depth_reward_rate,
+        no_truncate=no_truncate,
     ).model_dump(exclude_none=True)
     async with aiohttp.ClientSession() as session:
         async with session.post(REMOTE_RM_URL, json=data, headers=headers, timeout=aiohttp.ClientTimeout(total=remote_timeout)) as response:

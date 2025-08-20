@@ -31,6 +31,7 @@ class RewardRequest(BaseModel):
     time_reward_threshold: float = 120.0
     depth_reward_ratio: float = 0.0
     depth_reward_rate: float = 0.25
+    no_truncate: bool = False
 
 
 class RewardResponse(BaseModel):
