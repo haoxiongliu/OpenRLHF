@@ -25,7 +25,7 @@ def filter_log_file(pattern, input_file="results/summary.log"):
     
     # Output file paths
     output_filtered = f"results/summary_filtered_{timestamp}.log"
-    output_excluded = f"results/summary_excluded_0807-q2515bi_{timestamp}.log"
+    output_excluded = f"results/summary_excluded_{timestamp}.log"
    
 
     if not os.path.exists(input_file):

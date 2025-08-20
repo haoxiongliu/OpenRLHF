@@ -26,6 +26,7 @@ def reward_func(queries, prompts, labels, **kwargs):
 
     return {
         "rewards": reward,  # Rewards for advantage calculation
+        "orig_rewards": reward,  # Original rewards for baseline estimation
         "scores": reward,  # Scores for dynamic filtering (0-1 reward)
         "extra_logs": {"dummy_scores": reward},  # Additional logging info for wandb
     }

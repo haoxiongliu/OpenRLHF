@@ -225,6 +225,7 @@ class Lean4ServerProcess(mp.Process):
         proofaug: bool=False,
         record_pa_reward: bool=False,
         pa_with_orig: bool=False,
+        no_truncate: bool=False,
         hammer_type: Optional[str]=None,    # legacy
         hammer_list: Optional[list[str] | str]=None,
         hammer_recipe: Optional[str]=None,
@@ -375,15 +376,19 @@ class Lean4ServerProcess(mp.Process):
                             if part.state != BlockState.COMPLETED:
                                 break
                         rest_part_index += 1
-                        if len(ps2goals[ps]) == len(init_goals) and rest_part_index != len(rest_parts):
-                            block._proofaug_parts = block.parts[:rest_part_index+1]
-                            proofaug_subst[f"{block.start_line}:{block.end_line}"] = block.proofaug_content
-                            break
+                        if not no_truncate:
+                            if len(ps2goals[ps]) == len(init_goals) and rest_part_index != len(rest_parts):
+                                block._proofaug_parts = block.parts[:rest_part_index+1]
+                                proofaug_subst[f"{block.start_line}:{block.end_line}"] = block.proofaug_content
+                                break
                     
                     # check whether the current block is completed by checking the number of goals
                     assert len(ps2goals[ps]) >= len(init_goals), f"Observe {len(ps2goals[ps])=} < {len(init_goals)=} in {block=} at {part=}"
-                    if len(ps2goals[ps]) > len(init_goals): # proofaug
-                        ps_cands = sorted(set([ps, sttm_ps]), reverse=True)
+                    if no_truncate and rest_part_index < len(rest_parts) - 1:
+                        block.state = BlockState.SORRY_FAILED
+                    elif len(ps2goals[ps]) > len(init_goals): # proofaug
+                        cand_states = [ps, sttm_ps] if not no_truncate else [ps]
+                        ps_cands = sorted(set(cand_states), reverse=True)
                         if random_order:
                             random.shuffle(hammers)
                         cand_combs = list(itertools.product(ps_cands, hammers))

@@ -93,10 +93,10 @@ class PolicyLoss(nn.Module):
     ) -> torch.Tensor:
         ratio = (log_probs - old_log_probs).exp()
         surr1 = ratio * advantages
-        if self.old_prob_clip:
-            log_probs_value = log_probs.detach()
-            old_log_probs_clamped = old_log_probs.clamp(log_probs_value * (1-self.clip_eps_low), log_probs_value * (1+self.clip_eps_high))
-            ratio_clamped = (log_probs - old_log_probs_clamped).exp()
+        if self.old_prob_clip:  # min(p/q*A, p/sg(p))
+            log_probs_v = log_probs.detach()
+            olp_v = old_log_probs.clamp(log_probs_v/(1+self.clip_eps_high), log_probs_v/(1-self.clip_eps_low))
+            ratio_clamped = (log_probs - olp_v).exp()
             surr2 = ratio_clamped * advantages
         else:
             surr2 = ratio.clamp(1 - self.clip_eps_low, 1 + self.clip_eps_high) * advantages
