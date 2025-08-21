@@ -25,6 +25,7 @@ uv pip install -r requirements_prover.txt
 # (Optional) if you want to train
 uv pip install -r requirements_noflash.txt 
 uv pip install flash-attn==2.7.4.post1 --no-build-isolation
+uv pip install flashinfer-python
 
 # install lean
 curl https://elan.lean-lang.org/elan-init.sh -sSf | sh

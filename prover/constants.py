@@ -49,4 +49,5 @@ RECIPE2HAMMER_LIST = {
     "mix4": ["field_simp", "norm_num", "nlinarith", "ring", "norm_cast", "native_decide", "simp_all", "my_hint_v1.2", "omega", "my_hint_v1.3"],
     "mix5": ["simp", "field_simp", "norm_num", "nlinarith", "ring", "norm_cast", "native_decide", "simp_all", "my_hint_v1.2", "omega", "my_hint_v1.3", "bound", "positivity"],
     "mix6": ["simp", "simp_all", "bound", "omega", "norm_cast", "native_decide", "ring", "my_hint_v1.2", "nlinarith"],
+    "mix7": ["simp", "field_simp", "bound", "norm_cast", "native_decide", "ring", "linarith"]
 }
