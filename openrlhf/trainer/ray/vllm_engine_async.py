@@ -97,8 +97,19 @@ class LLMRayActorAsync(BaseLLMRayActor):
         NUM_TASKS = int(os.environ.get("OPENRLHF_ASYNC_NUM_TASKS", 128))
         semaphore = asyncio.Semaphore(NUM_TASKS)
         with open(self.proofaug_config_path, 'r') as f:
-            proofaug_config = yaml.safe_load(f)
+            proofaug_config : dict = yaml.safe_load(f)
+        
+        # Check if conservative mode is enabled
+        conservative_mode = proofaug_config.get("conservative", False)
+        proofaug = proofaug_config.get("proofaug", False)
+        
+        if conservative_mode and proofaug:
+            await self._add_requests_conservative(sampling_params, prompts, labels, max_length, hf_tokenizer, max_steps, proofaug_config, semaphore)
+        else:
+            await self._add_requests_original(sampling_params, prompts, labels, max_length, hf_tokenizer, max_steps, proofaug_config, semaphore)
 
+    async def _add_requests_original(self, sampling_params, prompts, labels, max_length, hf_tokenizer, max_steps, proofaug_config, semaphore):
+        """Original logic for processing requests"""
         async def execute_agent(prompt, label, sampling_params):
             async with semaphore:
                 # Create a unique agent instance for this prompt
@@ -193,6 +204,152 @@ class LLMRayActorAsync(BaseLLMRayActor):
 
         # Run the async code using the class's event loop
         await asyncio.gather(*tasks)
+
+    async def _add_requests_conservative(self, sampling_params, prompts, labels, max_length, hf_tokenizer, max_steps, proofaug_config: dict, semaphore):
+        """Conservative logic: only use proofaug replacement when all original responses for the same prompt have reward=0"""
+        import copy
+        from collections import defaultdict
+        
+        # Group consecutive identical prompts
+        prompt_groups = []
+        current_group = []
+        current_prompt = None
+        
+        for i, (prompt, label) in enumerate(zip(prompts, labels)):
+            if prompt != current_prompt:
+                if current_group:
+                    prompt_groups.append(current_group)
+                current_group = [(i, prompt, label)]
+                current_prompt = prompt
+            else:
+                current_group.append((i, prompt, label))
+        
+        if current_group:
+            prompt_groups.append(current_group)
+        
+        # Store results with original indices to maintain order
+        final_results = [None] * len(prompts)
+        
+        async def execute_agent_with_config(prompt, label, sampling_params, config_to_use):
+            async with semaphore:
+                # Create a unique agent instance for this prompt
+                agent_instance = AgentInstance.remote(self.agent_func_path)
+
+                # Initialize observations and actions for the current prompt
+                observation = prompt
+                action_ranges = []
+                total_reward = 0
+                total_orig_reward = 0
+                final_scores = 0
+                extra_logs = None
+
+                # Execute multiple steps of interaction
+                sample_original_action = None
+                sample_structured_output = None
+                for step_idx in range(max_steps):
+                    # Next sampling budget
+                    observation_tokens_len = len(
+                        hf_tokenizer(observation, add_special_tokens=False, return_tensors="pt")["input_ids"][0]
+                    )
+                    sampling_params.max_tokens = max_length - observation_tokens_len
+                    # No budget to generate, break
+                    if sampling_params.max_tokens <= 0:
+                        break
+
+                    # Generate response asynchronously
+                    request_output = await self.generate_async(observation, sampling_params)
+                    action = request_output.outputs[0].text
+                    original_action_len = len(action)
+                    action_start = len(observation)
+
+                    # Call step function to get reward and next observation
+                    # Use asyncio.to_thread to make Ray remote call non-blocking
+                    kwargs = {"sampling_params": sampling_params,
+                              "proofaug_config": config_to_use}
+                    result = await agent_instance.step.remote(observation, action, label, **kwargs)
+                    reward = result["rewards"]
+                    orig_reward = result["orig_rewards"]
+                    if isinstance(reward, torch.Tensor):
+                        reward = reward.item()
+                    if isinstance(orig_reward, torch.Tensor):
+                        orig_reward = orig_reward.item()
+                    total_reward += reward
+                    total_orig_reward += orig_reward
+                    final_scores = result.get("scores", total_reward)
+                    observation = result["next_observation"]
+                    done = result["done"]
+                    extra_logs = result.get("extra_logs", {})
+
+                    orig_reward = extra_logs.get("orig_rewards", 0.0) # require float
+                    if isinstance(orig_reward, torch.Tensor):
+                        orig_reward = orig_reward.item()
+
+                    # consider structured output from the environment
+                    action_end = len(observation)
+                    action_ranges.append((action_start, action_end))
+                    if original_action_len != action_end - action_start and random.random() < 0.1:
+                        sample_original_action = action
+                        sample_structured_output = observation[action_start:action_end]
+
+                    # Get sampling params from the environment step
+                    if result.get("sampling_params", None):
+                        sampling_params = result["sampling_params"]
+
+                    if done:
+                        break
+                if sample_structured_output is not None:
+                    print(f"structured output detected:\n\n{sample_original_action}\n\ntransformed to\n\n{sample_structured_output}")
+                ray.kill(agent_instance)
+
+                # Store the final response when agent execution is complete
+                final_response = {
+                    "prompt": prompt,
+                    "label": label,
+                    "observation": observation,
+                    "reward": total_reward,
+                    "orig_reward": total_orig_reward,
+                    "scores": final_scores,
+                    "extra_logs": extra_logs,
+                    "action_ranges": action_ranges,
+                }
+                return final_response
+        
+        # Create a modified config for first pass (disable proofaug)
+        first_pass_config = copy.deepcopy(proofaug_config)
+        first_pass_config["record_pa_reward"] = True
+        first_pass_config["proofaug"] = False
+        
+        # Process each group
+        for group in prompt_groups:
+            # First pass: evaluate with proofaug disabled
+            first_pass_tasks = []
+            for original_idx, prompt, label in group:
+                first_pass_tasks.append(execute_agent_with_config(prompt, label, copy.deepcopy(sampling_params), first_pass_config))
+            
+            first_pass_results = await asyncio.gather(*first_pass_tasks)
+            
+            # Check if all original responses have reward = 0
+            all_zero_rewards = all(result["reward"] == 0.0 for result in first_pass_results)
+            
+            if all_zero_rewards:
+                # Second pass: evaluate with original proofaug config
+                second_pass_tasks = []
+                for original_idx, prompt, label in group:
+                    second_pass_tasks.append(execute_agent_with_config(prompt, label, copy.deepcopy(sampling_params), proofaug_config))
+                
+                second_pass_results = await asyncio.gather(*second_pass_tasks)
+                
+                # Use second pass results
+                for i, (original_idx, _, _) in enumerate(group):
+                    final_results[original_idx] = second_pass_results[i]
+            else:
+                # Use first pass results
+                for i, (original_idx, _, _) in enumerate(group):
+                    final_results[original_idx] = first_pass_results[i]
+        
+        # Put all results into the queue in original order
+        for result in final_results:
+            await self.result_queue.put(result)
 
     async def generate_async(self, prompts, sampling_params):
         from vllm.utils import random_uuid
