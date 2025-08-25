@@ -408,13 +408,11 @@ class LLMRayActorAsync(BaseLLMRayActor):
             # Check if all original responses have reward = 0
             all_zero_rewards = all(result["reward"] == 0.0 for result in first_pass_results)
             
-            # Optimization: Also check if pa_reward exists and all are 0
             # If pa_reward is also 0, proofaug won't help, so skip second pass
             all_zero_pa_rewards = True
             for result in first_pass_results:
-                extra_logs = result.get("extra_logs", {})
-                pa_reward = extra_logs.get("pa_reward", None)
-                if pa_reward is not None and pa_reward != 0.0:
+                pa_reward = result["extra_logs"]["pa_rewards"]
+                if pa_reward != 0.0:
                     all_zero_pa_rewards = False
                     break
             

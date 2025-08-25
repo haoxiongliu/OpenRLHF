@@ -330,7 +330,6 @@ if __name__ == "__main__":
     parser.add_argument("--lambd", type=float, default=1, help="PPO GAE lambd")
     parser.add_argument("--gamma", type=float, default=1, help="PPO GAE gamma")
     parser.add_argument("--plmo", action="store_true", default=False, help="use proximal language modeling optimzation implemented in this work")
-    parser.add_argument("--ratio_type", default="single", choices=["single", "sum", "average"], help="type of ratio")
 
     parser.add_argument("--micro_train_batch_size", type=int, default=4, help="batch size per GPU")
     parser.add_argument("--train_batch_size", type=int, default=128, help="Global training batch size")
