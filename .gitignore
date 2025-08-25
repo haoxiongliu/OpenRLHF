@@ -158,16 +158,16 @@ play.ipynb
 play.py
 # scripts/*
 # scripts
-checkpoints
-checkpoint
+/checkpoints/
+/checkpoints
 logs/*
 logs
-wandb/*
-wandb
-results/*
-results
-models/
-models
-data/
-data
-prover/lean/verifier_debug.py
+/wandb/*
+/wandb
+/results/*
+/results
+/models/
+/models
+/data/
+/data
+/prover/lean/verifier_debug.py

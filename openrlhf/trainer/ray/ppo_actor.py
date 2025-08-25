@@ -71,7 +71,8 @@ class ActorPPOTrainer(ABC):
         self.actor_loss_fn = PolicyLoss(
             clip_eps_low=self.args.eps_clip_low_high[0],
             clip_eps_high=self.args.eps_clip_low_high[1],
-            old_prob_clip=self.args.old_prob_clip,
+            plmo=self.args.plmo,
+            ratio_type=self.args.ratio_type,
         )
 
         # Mixtral 8x7b
@@ -201,9 +202,11 @@ class ActorPPOTrainer(ABC):
         self.actor.train()
 
         sequences = experience.sequences
-        action_mask = experience.action_mask
+        # decided by action_ranges=response_range in SamplesGeneratorAsync
+        action_mask = experience.action_mask 
         attention_mask = experience.attention_mask
         packed_seq_lens = None
+        # old_action_log_probs is obtained by PolicyModelActor.forward
         old_action_log_probs = experience.action_log_probs
         advantages = experience.advantages
         base_action_log_probs = experience.base_action_log_probs

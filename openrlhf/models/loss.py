@@ -77,12 +77,14 @@ class PolicyLoss(nn.Module):
     Policy Loss for PPO
     """
 
-    def __init__(self, clip_eps_low: float = 0.2, clip_eps_high: float = 0.2, token_level_loss: bool = True, old_prob_clip: bool = False) -> None:
+    def __init__(self, clip_eps_low: float = 0.2, clip_eps_high: float = 0.2, 
+                 token_level_loss: bool = True, plmo: bool = False, ratio_type: str = "single") -> None:
         super().__init__()
         self.clip_eps_low = clip_eps_low
         self.clip_eps_high = clip_eps_high
         self.token_level_loss = token_level_loss
-        self.old_prob_clip = old_prob_clip
+        self.plmo = plmo
+        self.ratio_type = ratio_type
 
     def forward(
         self,
@@ -91,23 +93,66 @@ class PolicyLoss(nn.Module):
         advantages: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        ratio = (log_probs - old_log_probs).exp()
-        surr1 = ratio * advantages
-        if self.old_prob_clip:  # min(p/q*A, p/sg(p))
-            log_probs_v = log_probs.detach()
-            olp_v = old_log_probs.clamp(log_probs_v/(1+self.clip_eps_high), log_probs_v/(1-self.clip_eps_low))
-            ratio_clamped = (log_probs - olp_v).exp()
-            surr2 = ratio_clamped * advantages
+        if self.plmo:
+            # PLMO: change gradient objective from π(a_t|s_t) to π(s_t|x)
+            # Compute cumulative log probabilities (log_probs_sums)
+            log_probs_sums = self._compute_cumulative_log_probs(log_probs, action_mask)
+            loss = - log_probs_sums * advantages
+            # determine whether to clip by ratio
+            old_log_probs_sums = self._compute_cumulative_log_probs(old_log_probs, action_mask)
+            denominator = torch.cumsum(action_mask, dim=-1)
+            # denominator[denominator == 0] = 1   # avoid 0/0
+            if self.ratio_type == "single":
+                ratio = (log_probs - old_log_probs).exp()
+            elif self.ratio_type == "sum":
+                ratio = (log_probs_sums - old_log_probs_sums).exp()
+            elif self.ratio_type == "average":
+                ratio = ((log_probs_sums - old_log_probs_sums)/denominator).exp()
+            else:
+                raise ValueError(f"Invalid ratio type: {self.ratio_type}")
+            high_ratio = (ratio > 1 + self.clip_eps_high)
+            low_ratio = (ratio < 1 - self.clip_eps_low)
+            to_clip = high_ratio*(advantages > 0) | low_ratio*(advantages < 0)
+
+            loss = loss.detach()*to_clip.float() + loss*(~to_clip).float()
+            loss = (
+                masked_mean(loss, action_mask, dim=None)
+                if self.token_level_loss
+                else masked_mean(loss, action_mask, dim=-1).mean()
+            )
+            clip_ratio = masked_mean(to_clip.float(), action_mask, dim=None)
         else:
+            ratio = (log_probs - old_log_probs).exp()
+            surr1 = ratio * advantages
             surr2 = ratio.clamp(1 - self.clip_eps_low, 1 + self.clip_eps_high) * advantages
-        loss = -torch.min(surr1, surr2)
-        loss = (
-            masked_mean(loss, action_mask, dim=None)
-            if self.token_level_loss
-            else masked_mean(loss, action_mask, dim=-1).mean()
-        )
-        clip_ratio = masked_mean(torch.lt(surr2, surr1).float(), action_mask, dim=None)
+            loss = -torch.min(surr1, surr2)
+            loss = (
+                masked_mean(loss, action_mask, dim=None)
+                if self.token_level_loss
+                else masked_mean(loss, action_mask, dim=-1).mean()
+            )
+            clip_ratio = masked_mean(torch.lt(surr2, surr1).float(), action_mask, dim=None)
         return loss, clip_ratio
+
+    def _compute_cumulative_log_probs(self, log_probs: torch.Tensor, action_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Compute cumulative log probabilities for PLMO algorithm.
+        
+        Args:
+            log_probs: Per-token log probabilities, shape (B, S)
+            action_mask: Action mask to ignore padding tokens, shape (B, S)
+            
+        Returns:
+            Cumulative log probabilities, same shape as log_probs (B, S)
+        """
+        # Apply mask to log_probs to ignore padding tokens
+        masked_log_probs = log_probs * action_mask if action_mask is not None else log_probs
+            
+        # Compute cumulative sum along sequence dimension
+        # cumsum gives us log P(s_1|x), log P(s_1,s_2|x), ..., log P(s_1,...,s_t|x)
+        log_probs_sums = torch.cumsum(masked_log_probs, dim=-1)
+        
+        return log_probs_sums
 
 
 class ValueLoss(nn.Module):

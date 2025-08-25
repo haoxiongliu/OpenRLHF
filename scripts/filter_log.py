@@ -9,6 +9,7 @@ import os
 import sys
 from datetime import datetime
 import fire
+import re
 
 def filter_log_file(pattern, input_file="results/summary.log"):
     """
@@ -41,7 +42,7 @@ def filter_log_file(pattern, input_file="results/summary.log"):
         
         # Separate lines based on whether they contain the pattern
         for line in lines:
-            if pattern in line:
+            if re.search(pattern, line):
                 excluded_lines.append(line)
             else:
                 filtered_lines.append(line)
