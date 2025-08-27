@@ -4,16 +4,19 @@ r"""Training Curves Analysis for summary.log with Error Bars
 按model分组，同model同n同hammer画在一条曲线上
 只画有step的模型，并将hammer列表转换为recipe名字
 使用-s\d+模式识别种子差异，计算标准差并添加误差条
+arguments: log_fp="results/summary.log", curve_root="results"
 """
 
 import re
+import os
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from collections import defaultdict
 import ast
-from os.path import basename
+from os.path import basename, splitext
 import fire
+import pickle
 
 def remove_seed_from_params(inference_params):
     r"""Remove seed information (-s\d+) from inference parameters"""
@@ -113,7 +116,7 @@ def aggregate_by_step(points_list):
     
     return sorted(aggregated, key=lambda x: x['step'])
 
-def main(log_fp="results/summary.log", curve_fp="results/training_curves.png"):
+def main(log_fp="results/summary.log", curve_root="results", plot_data_root="logs/plot_data/"):
     # Parse the log file
     print("Parsing summary.log...")
     data = parse_log_file(log_fp)
@@ -276,6 +279,13 @@ def main(log_fp="results/summary.log", curve_fp="results/training_curves.png"):
         baseline_recipes.add(inference_params_or_dir)
     baseline_colors = plt.cm.Set2(range(len(baseline_recipes)))
     baseline_color_map = dict(zip(baseline_recipes, baseline_colors))
+
+    # save plot data
+    os.makedirs(plot_data_root, exist_ok=True)
+    curve_name = splitext(basename(log_fp))[0]
+    plot_data_fp = os.path.join(plot_data_root, curve_name + ".pkl")
+    with open(plot_data_fp, 'wb') as f:
+        pickle.dump(aggregated_data, f)
     
     # Plot for each combination of test dataset and n value
     for i, dataset_val in enumerate(test_datasets):
@@ -365,9 +375,12 @@ def main(log_fp="results/summary.log", curve_fp="results/training_curves.png"):
     
     plt.tight_layout()
     plt.subplots_adjust(top=0.85)  # Leave space for legend on the top
+    
+    curve_fp = os.path.join(curve_root, curve_name + ".png")
     plt.savefig(curve_fp, dpi=300, bbox_inches='tight')
     print(f"Plots saved to {curve_fp}")
     plt.show()
 
 if __name__ == "__main__":
+    # log_fp="results/summary.log", curve_root="results"
     fire.Fire(main)
