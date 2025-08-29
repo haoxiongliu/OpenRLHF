@@ -262,23 +262,62 @@ def main(log_fp="results/summary.log", curve_root="results", plot_data_root="log
     elif n_count == 1:
         axes = [[ax] for ax in axes]  # Make it a 2D array for consistency
     
-    # Get all unique training names and assign colors
+    # Get all unique training names and assign colors (same training = same color)
     training_names = set()
     for key in aggregated_data.keys():
         training_name, n, test_dataset, inference_params = key
         training_names.add(training_name)
     
-    # Create color map for training names
-    training_colors = plt.cm.tab10(range(len(training_names)))
-    color_map = dict(zip(training_names, training_colors))
+    # Use a larger color palette for training names
+    if len(training_names) <= 10:
+        colors = plt.cm.tab10(range(len(training_names)))
+    elif len(training_names) <= 20:
+        colors = plt.cm.tab20(range(len(training_names)))
+    else:
+        # For more than 20 trainings, use combination of colormaps
+        colors = []
+        colormaps = [plt.cm.tab10, plt.cm.tab20b, plt.cm.tab20c, plt.cm.Set1, plt.cm.Set2, plt.cm.Set3]
+        for i, training_name in enumerate(training_names):
+            colormap_idx = (i // 10) % len(colormaps)
+            color_idx = i % 10
+            colors.append(colormaps[colormap_idx](color_idx))
     
-    # Create color map for baseline recipes
+    # Create color map for training names (same training = same color)
+    color_map = dict(zip(training_names, colors))
+    
+    # Debug output for color assignment
+    print(f"\nColor assignment for {len(training_names)} training experiments:")
+    for i, training_name in enumerate(sorted(training_names)):
+        print(f"  {i+1:2d}. {training_name}")
+    
+    # Create color map for baseline recipes with better color diversity
     baseline_recipes = set()
     for baseline_key in processed_baseline_data.keys():
         n, test_dataset, inference_params_or_dir = baseline_key
         baseline_recipes.add(inference_params_or_dir)
-    baseline_colors = plt.cm.Set2(range(len(baseline_recipes)))
+    
+    # Use multiple colormaps for baseline to avoid conflicts with training curves
+    if len(baseline_recipes) <= 8:
+        baseline_colors = plt.cm.Set2(range(len(baseline_recipes)))
+    elif len(baseline_recipes) <= 12:
+        baseline_colors = plt.cm.Set3(range(len(baseline_recipes)))
+    else:
+        # For many baselines, use combination of Set colormaps
+        baseline_colors = []
+        baseline_colormaps = [plt.cm.Set2, plt.cm.Set3, plt.cm.Pastel1, plt.cm.Pastel2]
+        for i, recipe in enumerate(baseline_recipes):
+            colormap_idx = (i // 8) % len(baseline_colormaps)
+            color_idx = i % 8
+            baseline_colors.append(baseline_colormaps[colormap_idx](color_idx))
+    
     baseline_color_map = dict(zip(baseline_recipes, baseline_colors))
+    
+    # Debug output for baseline color assignment
+    if baseline_recipes:
+        print(f"\nColor assignment for {len(baseline_recipes)} baseline recipes:")
+        for i, recipe in enumerate(sorted(baseline_recipes)):
+            display_recipe = recipe.split('/')[-1] if recipe and '/' in recipe else (recipe or 'default')
+            print(f"  {i+1:2d}. {display_recipe} (full: {recipe})")
 
     # save plot data
     os.makedirs(plot_data_root, exist_ok=True)
@@ -335,7 +374,7 @@ def main(log_fp="results/summary.log", curve_root="results", plot_data_root="log
                 # Include training name and inference_params in label (n and dataset are in title)
                 label = f'{training_name}{inference_params}'
                 
-                # Get color for this training
+                # Get color for this training (same training = same color)
                 color = color_map[training_name]
                 
                 # Extract data for plotting
@@ -354,7 +393,7 @@ def main(log_fp="results/summary.log", curve_root="results", plot_data_root="log
                 
                 # Plot with shaded area for error bars
                 if len(steps) > 1:  # Only plot line if we have multiple points
-                    # Plot main line
+                    # Plot main line (same line style for all)
                     ax.plot(steps, mean_pass_rates, 'o-', label=label + seed_info, 
                            linewidth=2, markersize=6, color=color)
                     # Plot shaded area for standard deviation
