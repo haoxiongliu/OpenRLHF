@@ -351,7 +351,7 @@ def main(log_fp="results/summary.log", curve_root="results", plot_data_root="log
                 baseline_color = baseline_color_map[inference_params_or_dir]
                 
                 # Plot baseline at step=0 with shaded area for error
-                ax.scatter([0], [mean_pass_rate], marker='x', s=64, color=baseline_color,
+                ax.scatter([0], [mean_pass_rate], marker='x', s=36, color=baseline_color,
                           label=f'{baseline_label} baseline ({num_seeds} seeds)', zorder=5)
                 
                 # Add shaded area for baseline standard deviation (very narrow, almost like a vertical line)
@@ -395,7 +395,7 @@ def main(log_fp="results/summary.log", curve_root="results", plot_data_root="log
                 if len(steps) > 1:  # Only plot line if we have multiple points
                     # Plot main line (same line style for all)
                     ax.plot(steps, mean_pass_rates, 'o-', label=label + seed_info, 
-                           linewidth=2, markersize=6, color=color)
+                           linewidth=2, markersize=4, color=color)
                     # Plot shaded area for standard deviation
                     upper_bound = [mean + std for mean, std in zip(mean_pass_rates, std_pass_rates)]
                     lower_bound = [mean - std for mean, std in zip(mean_pass_rates, std_pass_rates)]
@@ -403,7 +403,7 @@ def main(log_fp="results/summary.log", curve_root="results", plot_data_root="log
                 elif len(steps) == 1:
                     # For single point, still use error bar
                     ax.errorbar(steps, mean_pass_rates, yerr=std_pass_rates,
-                               fmt='o', label=label + seed_info, markersize=6, 
+                               fmt='o', label=label + seed_info, markersize=4, 
                                color=color, capsize=3)
             
             ax.set_xlabel('Training Steps')
