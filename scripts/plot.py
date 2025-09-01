@@ -116,11 +116,66 @@ def aggregate_by_step(points_list):
     
     return sorted(aggregated, key=lambda x: x['step'])
 
-def main(log_fp="results/summary.log", curve_root="results", plot_data_root="logs/plot_data/"):
+def main(log_fp="results/summary.log", curve_root="results", plot_data_root="logs/plot_data/", test_set="pset", only_orig=True):
+    """
+    Args:
+        test_set: Filter by test dataset. Options: 'all', 'pset', 'minif2f'
+                 - 'all': include all datasets
+                 - 'pset': exclude minif2f datasets (matching minif2f.*)
+                 - 'minif2f': include only minif2f datasets, exclude pset
+        only_orig: If True, only include inference params that contain "-orig" but exclude "-mix6+orig"
+    """
+    # Validate test_set argument
+    valid_test_sets = ["all", "pset", "minif2f"]
+    if test_set not in valid_test_sets:
+        raise ValueError(f"test_set must be one of {valid_test_sets}, got: {test_set}")
+    
     # Parse the log file
     print("Parsing summary.log...")
     data = parse_log_file(log_fp)
     print(f"Found {len(data)} entries")
+    
+    # Filter data based on test_set argument
+    if test_set != "all":
+        filtered_data = []
+        for entry in data:
+            output_dir = entry.get('output_dir', '')
+            test_dataset = extract_test_dataset(output_dir)
+            
+            # Apply filtering logic
+            if test_set == "pset":
+                # Exclude minif2f datasets (matching minif2f.*)
+                if not re.match(r'minif2f.*', test_dataset):
+                    filtered_data.append(entry)
+            elif test_set == "minif2f":
+                # Include only minif2f datasets, exclude pset
+                if re.match(r'minif2f.*', test_dataset):
+                    filtered_data.append(entry)
+        
+        data = filtered_data
+        print(f"After filtering for test_set='{test_set}': {len(data)} entries")
+    
+    # Filter data based on only_orig argument
+    if only_orig:
+        filtered_data = []
+        for entry in data:
+            output_dir = entry.get('output_dir', '')
+            model_path = entry.get('model', '')
+            inference_params = extract_inference_params(output_dir)
+            
+            # For baseline data (hf_models), check output_dir directly
+            # For training data, check inference_params
+            if 'hf_models' in model_path:
+                # For baseline, check the output_dir directly
+                if "-orig" in output_dir and "-mix6+orig" not in output_dir:
+                    filtered_data.append(entry)
+            else:
+                # For training data, check inference_params
+                if inference_params and "-orig" in inference_params and "-mix6+orig" not in inference_params:
+                    filtered_data.append(entry)
+        
+        data = filtered_data
+        print(f"After filtering for only_orig=True: {len(data)} entries")
     
     # Group data by model, n, and recipe (with seed-cleaned params)
     grouped_data = defaultdict(list)
