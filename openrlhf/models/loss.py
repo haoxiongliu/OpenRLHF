@@ -78,13 +78,18 @@ class PolicyLoss(nn.Module):
     """
 
     def __init__(self, clip_eps_low: float = 0.2, clip_eps_high: float = 0.2, 
-                 token_level_loss: bool = True, plmo: bool = False, ratio_type: str = "single") -> None:
+                 token_level_loss: bool = True, plmo: bool = False, ratio_type: str = "single", 
+                 policy_loss_type: str = "ppo") -> None:
         super().__init__()
         self.clip_eps_low = clip_eps_low
         self.clip_eps_high = clip_eps_high
         self.token_level_loss = token_level_loss
         self.plmo = plmo
         self.ratio_type = ratio_type
+        self.policy_loss_type = policy_loss_type
+
+        if self.policy_loss_type == "gspo":
+            self.token_level_loss = False
 
     def forward(
         self,
@@ -93,7 +98,7 @@ class PolicyLoss(nn.Module):
         advantages: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
-        if self.plmo:
+        if self.policy_loss_type == "plmo" or self.plmo:
             # PLMO: change gradient objective from π(a_t|s_t) to π(s_t|x)
             # Compute cumulative log probabilities (log_probs_sums)
             log_probs_sums = self._compute_cumulative_log_probs(log_probs, action_mask)
@@ -117,7 +122,20 @@ class PolicyLoss(nn.Module):
                 if self.token_level_loss
                 else masked_mean(loss, action_mask, dim=-1).mean()
             )
-            clip_ratio = masked_mean(to_clip.float(), action_mask, dim=None)            
+            clip_ratio = masked_mean(to_clip.float(), action_mask, dim=None)
+        elif self.policy_loss_type == "gspo":
+            log_ratio = log_probs - old_log_probs
+            ratio = (log_ratio * action_mask).sum(dim=-1) / action_mask.sum(dim=-1)
+            ratio = ratio.exp().unsqueeze(-1) * action_mask
+            surr1 = ratio * advantages
+            surr2 = ratio.clamp(1 - self.clip_eps_low, 1 + self.clip_eps_high) * advantages
+            loss = -torch.min(surr1, surr2)
+            loss = (
+                masked_mean(loss, action_mask, dim=None)
+                if self.token_level_loss
+                else masked_mean(loss, action_mask, dim=-1).mean()
+            )
+            clip_ratio = masked_mean(torch.lt(surr2, surr1).float(), action_mask, dim=None)            
         else:
             ratio = (log_probs - old_log_probs).exp()
             surr1 = ratio * advantages
