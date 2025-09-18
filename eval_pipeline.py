@@ -18,6 +18,31 @@ import openai
 import requests  # Add for HTTP requests to lean_reward_server
 from prover.agent_utils import RewardRequest
 from prover.utils import PROOF_PATTERN, extract_code_from_prq, DEEPSEEK_HEADER
+import signal
+import sys
+from functools import wraps
+
+def timeout(seconds=30):
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            def signal_handler(signum, frame):
+                raise TimeoutError(f"Function {func.__name__} timed out after {seconds} seconds")
+            
+            # Set the signal handler and alarm
+            old_handler = signal.signal(signal.SIGALRM, signal_handler)
+            signal.alarm(seconds)
+            
+            try:
+                result = func(*args, **kwargs)
+            finally:
+                # Reset the alarm and handler
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+            
+            return result
+        return wrapper
+    return decorator
 
 async def compile_codes_with_server(queries, args):
     """
@@ -223,6 +248,11 @@ def main(args):
         
         to_inference_codes = []
         os.makedirs(args.output_dir, exist_ok=True)
+
+        @timeout(10)  # 10 second timeout per extraction
+        def safe_extract_code(prompt, response):
+            return extract_code_from_prq(prompt, response)
+                
         for i in range(len(data_list)):
             data_list[i]["messages"] = messages_list[i] if args.template_name else model_inputs[i]
             data_list[i]["model_outputs"] = model_outputs[i]
@@ -230,7 +260,11 @@ def main(args):
             full_codes = []
             prompt = model_inputs[i]
             for response in model_outputs[i]:
-                full_code = extract_code_from_prq(prompt, response)
+                try:
+                    full_code = safe_extract_code(prompt, response)
+                except TimeoutError:
+                    full_code = ""
+                    logger.warning(f"Timeout occurred while extracting code from prompt: {prompt} and response: {response}")
                 full_codes.append(full_code)
             data_list[i]["full_code"] = full_codes
             name = data_list[i]["problem_id"] if "problem_id" in data_list[i] else data_list[i]["name"]

@@ -31,7 +31,7 @@ def extract_line_tactic(line: str) -> list[str|None]:
     
     return " ".join(components)
 
-def create_separate_distributions(all_tactic_frequencies, record_labels, top_n=20):
+def create_separate_distributions(all_tactic_frequencies, record_labels, top_n=25):
     """
     Create separate histogram distributions for each dataset.
     """
@@ -120,10 +120,12 @@ def main(record_fps=None, record_labels=None):
     if record_fps is None:
         record_fps = ["results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-record_pa_reward-mix6-0808-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl", 
                     #   "results/pset_test/0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",
-                      "results/pset_test/0812-q2515bi-pset10k-sft-pset140k-n8-rloo-3090-bs64-mix6-remove-0809-3072-kl0.0-ch0.3/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl", 
-                      "results/pset_test/0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl", 
-                      "results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-mix6-max2depth-0807-3072-kl0.0-cl0.5-1.0-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl"]
-        record_labels = ["original_step10", "direct_step10", "conservative_step10", "aggressive_step10"]
+                      "results/pset_test/0812-q2515bi-pset10k-sft-pset140k-n8-rloo-3090-bs64-mix6-remove-0809-3072-kl0.0-ch0.3/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",
+                    ]
+                    #   "results/pset_test/0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",] 
+                    #   "results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-mix6-max2depth-0807-3072-kl0.0-cl0.5-1.0-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl"]
+        record_labels = ["original_step10", "direct_step10"]
+        # , "aggressive_step10"] , "conservative_step10"
         # "results/pset_test/0826-1-mix6-max2depth-cons-0821-plmo-single-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl"
     
     if record_labels is None:
