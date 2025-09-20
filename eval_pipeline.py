@@ -274,9 +274,9 @@ def main(args):
                 json.dump(data_list[i], f)
                 f.write('\n')
     
-        if model:
-            del model
-            torch.cuda.empty_cache()
+        # if model:
+        #     del model
+        #     torch.cuda.empty_cache()
 
     if args.only_records:
         return

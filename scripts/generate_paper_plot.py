@@ -7,6 +7,16 @@ import ast
 import re
 from tensorboard.backend.event_processing import event_accumulator
 import glob
+
+# Set global font sizes for all plots
+plt.rcParams.update({
+    'font.size': 14,
+    'axes.labelsize': 16,
+    'axes.titlesize': 18,
+    'xtick.labelsize': 14,
+    'ytick.labelsize': 14,
+    'legend.fontsize': 14
+})
 # "ppo_0.2_0.28": "0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-record_pa_reward-mix6-0808-3072-kl0.0-cl0.2-0.28-trT0.6",
 label2name = {
     # "gspo": "0901-3-record_pa_reward-mix6-gspo-n8-rloo-3072-kl0.0-cl0.2-0.27-trT0.6",
@@ -41,10 +51,17 @@ label2name = {
     "osppo_sum_pab_0.2_0.28+cons": "0914-1-osppo-sum-pab-mix6-max2depth-cons-cl0.2-0.28",
     "osppo_sum_pab_0.2_0.28+cons+nt": "0915-1-osppo-sum-pab-mix7-max2depth-cons-nt-cl0.2-0.28",
     "grpo": "0917-1-ppo-group_norm-record_pa-mix6-kl0.04-cl0.2-0.2",
-    "gspo": "0917-2-gspo-group_norm-record_pa-mix6-cl0.2-0.27",
-    "gspo_sum_0.2_0.28-nt": "0917-3-gspo-sum-mix7-max2depth-cons-nt-cl0.2-0.28",
+    "gspo_group_norm": "0917-2-gspo-group_norm-record_pa-mix6-cl0.2-0.27",
+    "gspo_sum_0.2_0.28-cons-nt": "0917-3-gspo-sum-mix7-max2depth-cons-nt-cl0.2-0.28",
     "gspo_sum_0.2_0.28": "0918-1-gspo-sum-record_pa-mix6-cl0.2-0.28",
 
+    "plpo": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo+cons(proofaug+)": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
+    "rloo_0.2_0.28": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "rloo+direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "rloo+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "grpo_0.2_0.2": "0917-1-ppo-group_norm-record_pa-mix6-kl0.04-cl0.2-0.2",
 }
 
 def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=False):
@@ -60,65 +77,45 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         preliminary = ["ppo", "ppo+direct", "gspo", "osppo w/o rc", "gspo_sum_0.2_0.28"]
         show_plmo = ["ppo_0.2_0.28", "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28", "osppo w/o rc", "osppo_sum_0.2_0.28", "grpo", "gspo", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
         show_aggr_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+aggr", "ppo_0.5_1.0+aggr", "ppo_0.2_0.28+cons"] # "ppo_0.5_1.0",
-        show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28-nt"] 
-        show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] # limitation part
-        show_entropy = ["ppo+cons", "ppo", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "grpo", "gspo", "gspo_sum_0.2_0.28-nt"] # , "osppo_sum_pab_0.2_0.28+cons+nt"
+        show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] 
+        show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] # limitation part
+        show_entropy = ["ppo+cons", "ppo", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons",  "gspo_sum_0.2_0.28"] 
+        # , "osppo_sum_pab_0.2_0.28+cons+nt" "osppo_sum_pab_0.2_0.28+cons", "grpo", "gspo",
         # "plmo_avg_0.1_0.12+cons", "plmo_sum_0.2_0.28+cons", 这些再做个ablation 就行 
         # "plmo_single_0.2_0.28+cons", "plmo_sum_0.4_0.6+cons", , "plmo_avg_0.05_0.06+cons" seed  原因逃过一劫？ "osppo w/o rc", "plmo_avg_0.03_0.03+cons", 
     # Generate show_plmo plot
 
         generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=preliminary,
-            output_filename='preliminary',
-            max_step=48
-        )
-
-        generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=show_plmo,
-            output_filename='show_plmo',
-            max_step=400
-        )
-
-        generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=show_plmo_cons,
-            output_filename='show_plmo_cons',
-            max_step=400
-        )
-
-        # Generate show_aggr_cons plot
-        generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=show_aggr_cons,
-            output_filename='show_aggr_cons',
+            log_fp, output_root, preliminary, 'preliminary',
             max_step=100
         )
-        
-        # Generate show_entropy plot
+        generate_training_curves_plot(
+            log_fp, output_root, show_plmo, 'show_plmo',
+            max_step=400
+        )
+        generate_training_curves_plot(
+            log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
+            max_step=400
+        )
+        generate_training_curves_plot(
+            log_fp, output_root, show_aggr_cons, 'show_aggr_cons',
+            max_step=100
+        )
         generate_show_entropy_plot(
             log_fp, output_root, show_entropy, 'show_entropy',
             max_step=400
         )
-        
-        # Generate show_minif2f plot
         generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=show_minif2f,
-            output_filename='show_minif2f',
+            log_fp, output_root, show_minif2f, 'show_minif2f',
             max_step=400,
             dataset_filter='minif2f_test'
         )
     else:
         preliminary = ["ppo", "ppo+direct"]
+        decouple = ["gspo_group_norm", "gspo_sum_0.2_0.28"]
+        show_plpo = ["rloo_0.2_0.28", "plpo_0.2_0.28"]
+        show_plpo_cons = ["grpo_0.2_0.2", "rloo_0.2_0.28", "rloo+direct", "rloo+cons", "plpo_0.2_0.28", "plpo+cons(proofaug+)"]
         show_plmo = ["ppo_0.2_0.28",  "osppo w/o rc", "osppo_sum_0.2_0.28"] # "ppo_wo_rc", # "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28",
-        show_aggr_cons = [] # give up
         show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] 
         show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] # limitation part
         show_entropy = ["ppo+cons", "ppo", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons"] 
@@ -135,34 +132,26 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
             log_fp, output_root, preliminary, 'preliminary',
             max_step=50
         )
-        # generate_training_curves_plot(
-        #     log_fp=log_fp,
-        #     output_root=output_root,
-        #     labels_to_show=show_plmo,
-        #     output_filename='show_plmo',
-        #     max_step=300
-        # )
+        generate_show_entropy_plot(
+            log_fp, output_root, decouple, 'decouple',
+            max_step=100
+        )
+        generate_show_entropy_plot(
+            log_fp, output_root, show_plpo, 'show_plpo',
+            max_step=298
+        )
+        generate_training_curves_plot(
+            log_fp, output_root, show_plpo_cons, 'show_plpo_cons',
+            max_step=290
+        )
         generate_show_entropy_plot(
             log_fp, output_root, show_plmo, 'show_plmo',
             max_step=300
         )
         generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=show_plmo_cons,
-            output_filename='show_plmo_cons',
+            log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
             max_step=400
         )
-
-        # Generate show_aggr_cons plot
-        # generate_training_curves_plot(
-        #     log_fp=log_fp,
-        #     output_root=output_root,
-        #     labels_to_show=show_aggr_cons,
-        #     output_filename='show_aggr_cons',
-        #     max_step=100
-        # )
-        
         # Generate show_entropy plot
         generate_show_entropy_plot(
             log_fp, output_root, show_entropy, 'show_entropy',
@@ -171,10 +160,7 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         
         # Generate show_minif2f plot
         generate_training_curves_plot(
-            log_fp=log_fp,
-            output_root=output_root,
-            labels_to_show=show_minif2f,
-            output_filename='show_minif2f',
+            log_fp, output_root, show_minif2f, 'show_minif2f',
             max_step=400,
             dataset_filter='minif2f_test'
         )
