@@ -13,6 +13,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
+plt.rcParams.update({
+    'font.size': 18,
+    'axes.labelsize': 20,
+    'axes.titlesize': 22,
+    'xtick.labelsize': 16,
+    'ytick.labelsize': 18,
+    'legend.fontsize': 18
+})
+
 def extract_line_tactic(line: str) -> list[str|None]:
     """
     Extract the tactic from the line.
@@ -31,11 +40,11 @@ def extract_line_tactic(line: str) -> list[str|None]:
     
     return " ".join(components)
 
-def create_separate_distributions(all_tactic_frequencies, record_labels, top_n=25):
+def create_separate_distributions(all_tactic_frequencies, record_labels, name, top_n=25):
     """
     Create separate histogram distributions for each dataset.
     """
-    output_dir = "results"
+    output_dir = "results/paper_plot"
     os.makedirs(output_dir, exist_ok=True)
     
     # Create separate plots for each dataset
@@ -45,32 +54,36 @@ def create_separate_distributions(all_tactic_frequencies, record_labels, top_n=2
         tactics = [tactic for tactic, _ in top_tactics]
         counts = [freq for _, freq in top_tactics]
         
-        # Create figure
-        plt.figure(figsize=(12, 8))
+        # Create figure with larger size to accommodate tactic names
+        plt.figure(figsize=(16, 10))
         
-        # Create bar plot without specific tactic names on x-axis
+        # Create bar plot with tactic names on x-axis
         x_positions = range(len(tactics))
-        bars = plt.bar(x_positions, counts, alpha=0.7, color=f'C{i}')
+        bars = plt.bar(x_positions, counts, alpha=0.7, color=f'C{i}', edgecolor='black', linewidth=0.5)
         
-        # Set labels and title
-        plt.xlabel('Tactic Rank (Most to Least Frequent)')
+        # Set labels (no title as per conference requirements)
+        # plt.xlabel('Tactic Names')  # Removed as requested
         plt.ylabel('Count')
-        plt.title(f'Tactic Count Distribution - {record_labels[file_idx]}')
         
-        # Remove specific tactic names from x-axis, just show rank numbers
-        plt.xticks(x_positions[::2], [str(i+1) for i in x_positions[::2]])  # Show every 2nd rank
+        # Set tactic names on x-axis with rotation for readability
+        plt.xticks(x_positions, tactics, rotation=45, ha='right')
         
         # Add grid for better readability
         plt.grid(True, alpha=0.3, axis='y')
         
-        # Add some statistics as text
+        # Add value labels on top of bars
+        for j, (bar, count) in enumerate(zip(bars, counts)):
+            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(counts)*0.01, 
+                    str(count), ha='center', va='bottom', fontsize=14)
+        
+        # Add some statistics as text in the top-right corner
         total_tactics = sum(counts)
         top_5_percent = sum(counts[:5]) / total_tactics * 100
-        plt.text(0.02, 0.98, f'Total tactics: {total_tactics}\nTop 5 tactics: {top_5_percent:.1f}%', 
-                transform=plt.gca().transAxes, verticalalignment='top',
+        plt.text(0.98, 0.98, f'Total tactics: {total_tactics}\nTop 5 tactics: {top_5_percent:.1f}%', 
+                transform=plt.gca().transAxes, verticalalignment='top', horizontalalignment='right',
                 bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
         
-        # Tight layout
+        # Tight layout to prevent label cutoff
         plt.tight_layout()
         
         # Save individual plot
@@ -82,9 +95,10 @@ def create_separate_distributions(all_tactic_frequencies, record_labels, top_n=2
         plt.close()
     
     # Also create a summary comparison of distribution shapes
-    create_distribution_comparison(all_tactic_frequencies, record_labels, top_n)
+    create_distribution_comparison(all_tactic_frequencies, record_labels, name, top_n)
 
-def create_distribution_comparison(all_tactic_frequencies, record_labels, top_n=20):
+
+def create_distribution_comparison(all_tactic_frequencies, record_labels, name, top_n=20):
     """
     Create a line plot comparing the distribution shapes.
     """
@@ -108,29 +122,31 @@ def create_distribution_comparison(all_tactic_frequencies, record_labels, top_n=
     plt.yscale('log')  # Log scale to better show the distribution
     
     # Save comparison plot
-    output_dir = "results"
-    output_path = os.path.join(output_dir, "tactic_distribution_comparison.png")
+    output_dir = "results/paper_plot"
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, f"tactic_distribution_comparison_{name}.png")
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     print(f"Distribution comparison saved to: {output_path}")
     
     plt.show()
     plt.close()
-    
-def main(record_fps=None, record_labels=None):
-    if record_fps is None:
-        record_fps = ["results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-record_pa_reward-mix6-0808-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl", 
-                    #   "results/pset_test/0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",
-                      "results/pset_test/0812-q2515bi-pset10k-sft-pset140k-n8-rloo-3090-bs64-mix6-remove-0809-3072-kl0.0-ch0.3/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",
-                    ]
-                    #   "results/pset_test/0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",] 
-                    #   "results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-mix6-max2depth-0807-3072-kl0.0-cl0.5-1.0-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl"]
-        record_labels = ["original_step10", "direct_step10"]
-        # , "aggressive_step10"] , "conservative_step10"
+
+def main():
+    record_fps = ["results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-record_pa_reward-mix6-0808-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl", 
+                #   "results/pset_test/0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",
+                    "results/pset_test/0812-q2515bi-pset10k-sft-pset140k-n8-rloo-3090-bs64-mix6-remove-0809-3072-kl0.0-ch0.3/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",
+                    "results/pset_test/0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl",] 
+                #   "results/pset_test/0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-mix6-max2depth-0807-3072-kl0.0-cl0.5-1.0-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl"]
+    record_labels = ["original_step10", "direct_step10", "conditioned_step10"]
+    plot_tactic_statistics(record_fps, record_labels, "final")
+    plot_tactic_statistics(record_fps[:2], record_labels[:2], "prelim")
+
+
+def plot_tactic_statistics(record_fps, record_labels, name):
+
+        # , "aggressive_step10"] , 
         # "results/pset_test/0826-1-mix6-max2depth-cons-0821-plmo-single-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6/global_step10_hf-n1-4096-T0.6-s7-orig/full_records.jsonl"
-    
-    if record_labels is None:
-        record_labels = [f"Dataset_{i+1}" for i in range(len(record_fps))]
-    
+
     all_tactic_frequencies = {}
     
     # Process each file
@@ -162,7 +178,8 @@ def main(record_fps=None, record_labels=None):
             print(f"  {tactic}: {freq}")
     
     # Create separate distribution histograms
-    create_separate_distributions(all_tactic_frequencies, record_labels)
+    create_separate_distributions(all_tactic_frequencies, record_labels, name)
+
 
 if __name__ == "__main__":
     fire.Fire(main)

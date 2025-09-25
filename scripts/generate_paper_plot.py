@@ -10,18 +10,20 @@ import glob
 
 # Set global font sizes for all plots
 plt.rcParams.update({
-    'font.size': 14,
-    'axes.labelsize': 16,
-    'axes.titlesize': 18,
-    'xtick.labelsize': 14,
-    'ytick.labelsize': 14,
-    'legend.fontsize': 14
+    'font.size': 16,
+    'axes.labelsize': 20,
+    'axes.titlesize': 20,
+    'xtick.labelsize': 16,
+    'ytick.labelsize': 16,
+    'legend.fontsize': 16
 })
 # "ppo_0.2_0.28": "0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-record_pa_reward-mix6-0808-3072-kl0.0-cl0.2-0.28-trT0.6",
 label2name = {
     # "gspo": "0901-3-record_pa_reward-mix6-gspo-n8-rloo-3072-kl0.0-cl0.2-0.27-trT0.6",
     # "gspo_0.1_0.12": "0902-1-record_pa_reward-mix6-gspo-n8-rloo-3072-kl0.0-cl0.1-0.12-trT0.6",
     "ppo": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "base": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "grpo-hybrid": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
     "ppo_0.2_0.28": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
     "ppo+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
     "ppo_0.2_0.28+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",  # best one seems
@@ -29,6 +31,8 @@ label2name = {
     "ppo_0.5_1.0": "0819-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-record_pa_reward-mix6-0808-3072-kl0.0-cl0.5-1.0-trT0.6",
     "ppo_0.5_1.0+aggr": "0820-q2515bi-pset10k-sft-pset10k-n8-rloo-3090-bs64-mix6-max2depth-0807-3072-kl0.0-cl0.5-1.0-trT0.6",  
     "ppo+direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6", 
+    "base + direct ProofAug": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "grpo-hybrid + direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
     "ppo_0.2_0.28+direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6", # preliminary
     "plmo_single_0.2_0.28": "0831-3-record_pa_reward-mix6-plmo-single-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
     "plmo_single_0.2_0.28+cons": "0826-1-mix6-max2depth-cons-0821-plmo-single-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6", # nearest one
@@ -45,7 +49,8 @@ label2name = {
     "plmo_sum_0.4_0.6+cons": "0905-2-plmo-sum-mix6-max2depth-cons-cl0.4-0.6",
     "plmo_avg_0.05_0.06+cons": "0907-1-plmo-average-mix6-max2depth-cons-cl0.05-0.06",
     "plmo_avg_0.03_0.03+cons": "0907-2-plmo-average-mix6-max2depth-cons-cl0.03-0.03",
-    "osppo w/o rc": "0908-1-osppo-average-record_pa-mix6-cl0.2-0.27",
+    "osppo_avg_0.2_0.27": "0908-1-osppo-average-record_pa-mix6-cl0.2-0.27",
+    "plpo_avg_0.2_0.27": "0908-1-osppo-average-record_pa-mix6-cl0.2-0.27",
     "osppo_sum_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
     "osppo_sum_0.2_0.28+cons": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
     "osppo_sum_pab_0.2_0.28+cons": "0914-1-osppo-sum-pab-mix6-max2depth-cons-cl0.2-0.28",
@@ -54,14 +59,22 @@ label2name = {
     "gspo_group_norm": "0917-2-gspo-group_norm-record_pa-mix6-cl0.2-0.27",
     "gspo_sum_0.2_0.28-cons-nt": "0917-3-gspo-sum-mix7-max2depth-cons-nt-cl0.2-0.28",
     "gspo_sum_0.2_0.28": "0918-1-gspo-sum-record_pa-mix6-cl0.2-0.28",
+    "gspo_avg_0.2_0.27": "0920-1-gspo-average-record_pa-mix6-cl0.2-0.27",
+    "gspo": "0920-1-gspo-average-record_pa-mix6-cl0.2-0.27",
 
     "plpo": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
     "plpo_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo_sum_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
     "plpo+cons(proofaug+)": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
-    "rloo_0.2_0.28": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
-    "rloo+direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
-    "rloo+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "proofaug+": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
+    "plpo-token_sum_0.2_0.28": "0921-1-plmo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo-token_single_0.2_0.28": "0922-1-plmo-single-record_pa-mix6-cl0.2-0.28",
+    "grpo-loo_0.2_0.28": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "grpo-loo+direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "grpo-loo+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "base+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
     "grpo_0.2_0.2": "0917-1-ppo-group_norm-record_pa-mix6-kl0.04-cl0.2-0.2",
+    
 }
 
 def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=False):
@@ -74,8 +87,8 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
     # "gspo", "gspo_0.1_0.12", 
     os.makedirs(output_root, exist_ok=True)
     if not paper:
-        preliminary = ["ppo", "ppo+direct", "gspo", "osppo w/o rc", "gspo_sum_0.2_0.28"]
-        show_plmo = ["ppo_0.2_0.28", "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28", "osppo w/o rc", "osppo_sum_0.2_0.28", "grpo", "gspo", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
+        preliminary = ["ppo", "ppo+direct", "gspo", "osppo_avg_0.2_0.27", "gspo_sum_0.2_0.28"]
+        show_plmo = ["ppo_0.2_0.28", "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28", "osppo_avg_0.2_0.27", "osppo_sum_0.2_0.28", "grpo", "gspo", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
         show_aggr_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+aggr", "ppo_0.5_1.0+aggr", "ppo_0.2_0.28+cons"] # "ppo_0.5_1.0",
         show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] 
         show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] # limitation part
@@ -83,7 +96,6 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         # , "osppo_sum_pab_0.2_0.28+cons+nt" "osppo_sum_pab_0.2_0.28+cons", "grpo", "gspo",
         # "plmo_avg_0.1_0.12+cons", "plmo_sum_0.2_0.28+cons", 这些再做个ablation 就行 
         # "plmo_single_0.2_0.28+cons", "plmo_sum_0.4_0.6+cons", , "plmo_avg_0.05_0.06+cons" seed  原因逃过一劫？ "osppo w/o rc", "plmo_avg_0.03_0.03+cons", 
-    # Generate show_plmo plot
 
         generate_training_curves_plot(
             log_fp, output_root, preliminary, 'preliminary',
@@ -111,14 +123,18 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
             dataset_filter='minif2f_test'
         )
     else:
-        preliminary = ["ppo", "ppo+direct"]
-        decouple = ["gspo_group_norm", "gspo_sum_0.2_0.28"]
-        show_plpo = ["rloo_0.2_0.28", "plpo_0.2_0.28"]
-        show_plpo_cons = ["grpo_0.2_0.2", "rloo_0.2_0.28", "rloo+direct", "rloo+cons", "plpo_0.2_0.28", "plpo+cons(proofaug+)"]
-        show_plmo = ["ppo_0.2_0.28",  "osppo w/o rc", "osppo_sum_0.2_0.28"] # "ppo_wo_rc", # "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28",
-        show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] 
-        show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] # limitation part
-        show_entropy = ["ppo+cons", "ppo", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons"] 
+        preliminary = ["grpo-hybrid", "grpo-hybrid + direct"]
+        decouple_osppo = ["plpo_avg_0.2_0.27", "plpo_sum_0.2_0.28"]
+        decouple = ["gspo_sum_0.2_0.28", "gspo_avg_0.2_0.27"] #"grpo", "gspo", "gspo_group_norm", 
+        show_plpo = ["grpo-hybrid", "plpo", "gspo", "grpo"]
+        # show_plpo_cons = ["grpo_0.2_0.2", "grpo-loo_0.2_0.28", "grpo-loo+direct", "grpo-loo+cons", "plpo_0.2_0.28", "plpo+cons(proofaug+)"]
+        # show_plpo_cons = ["base", "base+cons", "plpo", "plpo+cons(proofaug+)"]
+        show_plpo_cons = ["grpo-hybrid", "plpo", "proofaug+"]
+        show_plmo = ["ppo_0.2_0.28",  "plpo", "plmo_sum_0.2_0.28", "plpo-token_sum_0.2_0.28", "plpo-token_single_0.2_0.28"] # "ppo_wo_rc", # "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28",
+        # show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] 
+        # show_minif2f = ["base", "base+cons", "plpo","plpo+cons(proofaug+)"] # limitation part
+        show_minif2f = ["grpo-hybrid", "plpo", "gspo"]
+        show_entropy =  ["grpo-hybrid", "grpo-hybrid+cons", "plpo", "plpo+cons(proofaug+)"]
         # , "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"        
 
         # generate_training_curves_plot(
@@ -130,28 +146,32 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         # )
         generate_show_entropy_plot(
             log_fp, output_root, preliminary, 'preliminary',
-            max_step=50
+            max_step=80
+        )
+        generate_show_entropy_plot(
+            log_fp, output_root, decouple_osppo, 'decouple_osppo',
+            max_step=200
         )
         generate_show_entropy_plot(
             log_fp, output_root, decouple, 'decouple',
-            max_step=100
+            max_step=196
         )
         generate_show_entropy_plot(
             log_fp, output_root, show_plpo, 'show_plpo',
             max_step=298
         )
-        generate_training_curves_plot(
+        generate_show_entropy_plot(
             log_fp, output_root, show_plpo_cons, 'show_plpo_cons',
-            max_step=290
+            max_step=290 # to be 325 or 300 best for paper? 310 is good
         )
         generate_show_entropy_plot(
             log_fp, output_root, show_plmo, 'show_plmo',
             max_step=300
         )
-        generate_training_curves_plot(
-            log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
-            max_step=400
-        )
+        # generate_training_curves_plot(
+        #     log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
+        #     max_step=400
+        # )
         # Generate show_entropy plot
         generate_show_entropy_plot(
             log_fp, output_root, show_entropy, 'show_entropy',
@@ -161,13 +181,9 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         # Generate show_minif2f plot
         generate_training_curves_plot(
             log_fp, output_root, show_minif2f, 'show_minif2f',
-            max_step=400,
+            max_step=300,
             dataset_filter='minif2f_test'
         )
-
-    
-    
-
 
 
 def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_filename, max_step=300, plot_title=None, dataset_filter=None):
@@ -341,8 +357,6 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
     return plot_data
 
 
-
-
 def load_entropy_data(tensorboard_dir, max_step=72):
     """Load entropy loss data from tensorboard logs, merging data from multiple tfevents files"""
     entropy_data = {}
@@ -451,11 +465,11 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     # Set labels and formatting
     ax1.set_xlabel('Iteration')
     ax1.set_ylabel('Pass@1(%)', color='black')
-    ax2.set_ylabel('Entropy Loss', color='red')
+    ax2.set_ylabel('Entropy', color='black')
     
     # Set colors for y-axis labels
     ax1.tick_params(axis='y', labelcolor='black')
-    ax2.tick_params(axis='y', labelcolor='red')
+    ax2.tick_params(axis='y', labelcolor='black')
     
     # Use only accuracy lines for legend (entropy lines have no labels)
     lines1, labels1 = ax1.get_legend_handles_labels()

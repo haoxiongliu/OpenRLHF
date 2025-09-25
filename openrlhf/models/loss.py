@@ -88,8 +88,8 @@ class PolicyLoss(nn.Module):
         self.ratio_type = ratio_type
         self.policy_loss_type = policy_loss_type
 
-        # if self.policy_loss_type in ["gspo", "osppo"]:
-        #     self.token_level_loss = False
+        if self.policy_loss_type == "plpo":
+            self.policy_loss_type = "osppo"
 
     def forward(
         self,
