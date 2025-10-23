@@ -183,6 +183,7 @@ class LLMRayActorAsync(BaseLLMRayActor):
                 ray.kill(agent_instance)
 
                 # Store the final response when agent execution is complete
+                # this is used in experience_maker_async.py, line 40.
                 final_response = {
                     "prompt": prompt,
                     "label": label,

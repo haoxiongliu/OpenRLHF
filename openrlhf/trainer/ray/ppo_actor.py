@@ -74,6 +74,7 @@ class ActorPPOTrainer(ABC):
             plmo=self.args.plmo,
             ratio_type=self.args.ratio_type,
             policy_loss_type=self.args.policy_loss_type,
+            ratio_compen_factor=self.args.ratio_compen_factor, # for ProofAug+
         )
 
         # Mixtral 8x7b
@@ -211,6 +212,8 @@ class ActorPPOTrainer(ABC):
         old_action_log_probs = experience.action_log_probs
         advantages = experience.advantages
         base_action_log_probs = experience.base_action_log_probs
+        rewards = experience.rewards
+        orig_rewards = experience.orig_rewards
 
         # actor loss
         action_log_probs, output = self.actor(
@@ -229,6 +232,8 @@ class ActorPPOTrainer(ABC):
             old_action_log_probs,
             advantages,
             action_mask=experience.action_mask,
+            rewards=rewards,
+            orig_rewards=orig_rewards,
         )
         experience.info["ppo_clip_ratio"] = clip_ratio.detach()
 

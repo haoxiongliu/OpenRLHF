@@ -62,19 +62,33 @@ label2name = {
     "gspo_avg_0.2_0.27": "0920-1-gspo-average-record_pa-mix6-cl0.2-0.27",
     "gspo": "0920-1-gspo-average-record_pa-mix6-cl0.2-0.27",
 
-    "plpo": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
-    "plpo_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
-    "plpo_sum_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
-    "plpo+cons(proofaug+)": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
-    "proofaug+": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
+    "plpo_legacy": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo_legacy_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo_legacy_sum_0.2_0.28": "0909-1-osppo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo_legacy+cons": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
+    "plpo_legacy+cons(proofaug+)": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
+    "proofaug+_legacy": "0910-1-osppo-sum-mix6-max2depth-cons-cl0.2-0.28",
     "plpo-token_sum_0.2_0.28": "0921-1-plmo-sum-record_pa-mix6-cl0.2-0.28",
+    "plpo-token": "0921-1-plmo-sum-record_pa-mix6-cl0.2-0.28",
     "plpo-token_single_0.2_0.28": "0922-1-plmo-single-record_pa-mix6-cl0.2-0.28",
     "grpo-loo_0.2_0.28": "0903-1-record_pa_reward-mix6-ppo-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
     "grpo-loo+direct": "0831-2-mix6-remove-n8-rloo-3072-kl0.0-cl0.2-0.28-trT0.6",
     "grpo-loo+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
+    "grpo-hybrid+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
     "base+cons": "0821-q2515bip10k-n8-rloo-bs64-mix6-max2depth-cons-0821-3072-kl0.0-cl0.2-0.28-trT0.6",
     "grpo_0.2_0.2": "0917-1-ppo-group_norm-record_pa-mix6-kl0.04-cl0.2-0.2",
-    
+    "plpo_avg_0.1_0.12": "0925-1-plpo-average-rloo-record_pa-mix6-cl0.1-0.12",
+    "plpo_avg_0.05_0.06": "0926-1-plpo-average-rloo-record_pa-mix6-cl0.05-0.06",
+    "plpo_avg_0.03_0.03": "0927-1-plpo-average-rloo-record_pa-mix6-cl0.03-0.03",
+    "plpo": "0928-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28",
+    "plpo_sum_0.2_0.28": "0928-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28",
+    "plpo_trs8": "1005-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28-trs8",
+    "plpo+cons": "1001-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28",
+    "plpo+cons_rcf2": "1007-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28-rcf2.0",
+    "proofaug+": "1001-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28",
+    "plpo+cons_trs8": "1004-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28-trs8",
+    "plpo+direct": "1018-1-plpo-sum-rloo-mix6-remove-cl0.2-0.28",
+    "plpo+only_fail": "1019-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28",
 }
 
 def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=False):
@@ -85,10 +99,15 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
 
     # ppo_cons, plmo_single+cons, plmo_avg+cons ppo+aggr+large
     # "gspo", "gspo_0.1_0.12", 
-    os.makedirs(output_root, exist_ok=True)
+    
     if not paper:
+        output_root = "results/lookup_plot"
+        os.makedirs(output_root, exist_ok=True)
         preliminary = ["ppo", "ppo+direct", "gspo", "osppo_avg_0.2_0.27", "gspo_sum_0.2_0.28"]
-        show_plmo = ["ppo_0.2_0.28", "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28", "osppo_avg_0.2_0.27", "osppo_sum_0.2_0.28", "grpo", "gspo", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
+        show_plpo = ["plpo_legacy_avg_0.1_0.12", "plpo_legacy_sum_0.2_0.28", "grpo-hybrid", "plpo_legacy+cons", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.03_0.03", "plpo", "plpo+cons", "plpo_trs8"]
+        show_plpo_token = ["grpo-hybrid", "plpo", "plpo-token_sum_0.2_0.28", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
+        decouple_plpo = ["plpo", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.2_0.27", "plpo_avg_0.03_0.03"] 
+        show_plpo_cons = ["plpo", "plpo+cons", "grpo-hybrid+cons", "grpo-hybrid", "plpo+direct", "plpo+only_fail", "plpo+cons_rcf2"]#  "grpo-hybrid + direct", "grpo-hybrid+cons", "grpo-hybrid",  "plpo_legacy", "plpo_legacy+cons", "plpo+cons_trs8", "plpo_trs8", "plpo+cons_rcf2"
         show_aggr_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+aggr", "ppo_0.5_1.0+aggr", "ppo_0.2_0.28+cons"] # "ppo_0.5_1.0",
         show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] 
         show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] # limitation part
@@ -101,40 +120,54 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
             log_fp, output_root, preliminary, 'preliminary',
             max_step=100
         )
-        generate_training_curves_plot(
-            log_fp, output_root, show_plmo, 'show_plmo',
+        generate_show_entropy_plot(
+            log_fp, output_root, show_plpo, 'show_plpo',
+            max_step=600    # 296 is good to show
+        )
+        generate_show_entropy_plot(
+            log_fp, output_root, show_plpo_cons, 'show_plpo_cons',
+            max_step=2000 # to be 325 or 300 best for paper? 310 is good
+        )
+        generate_show_entropy_plot(
+            log_fp, output_root, show_plpo_token, 'show_plpo_token',
             max_step=400
         )
-        generate_training_curves_plot(
-            log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
+        generate_show_entropy_plot(
+            log_fp, output_root, decouple_plpo, 'decouple_plpo',
             max_step=400
         )
-        generate_training_curves_plot(
-            log_fp, output_root, show_aggr_cons, 'show_aggr_cons',
-            max_step=100
-        )
+        # generate_training_curves_plot(
+        #     log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
+        #     max_step=400
+        # )
+        # generate_training_curves_plot(
+        #     log_fp, output_root, show_aggr_cons, 'show_aggr_cons',
+        #     max_step=100
+        # )
         generate_show_entropy_plot(
             log_fp, output_root, show_entropy, 'show_entropy',
             max_step=400
         )
-        generate_training_curves_plot(
-            log_fp, output_root, show_minif2f, 'show_minif2f',
-            max_step=400,
-            dataset_filter='minif2f_test'
-        )
+        # generate_training_curves_plot(
+        #     log_fp, output_root, show_minif2f, 'show_minif2f',
+        #     max_step=400,
+        #     dataset_filter='minif2f_test'
+        # )
     else:
+        os.makedirs(output_root, exist_ok=True)
         preliminary = ["grpo-hybrid", "grpo-hybrid + direct"]
-        decouple_osppo = ["plpo_avg_0.2_0.27", "plpo_sum_0.2_0.28"]
+        # show_plpo_token = ["grpo-hybrid", "plpo", "plpo-token_sum_0.2_0.28"] # "ppo_wo_rc", , "gspo_sum_0.2_0.28"
+        decouple_plpo = ["plpo_sum_0.2_0.28", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.2_0.27", "plpo_avg_0.03_0.03"] 
         decouple = ["gspo_sum_0.2_0.28", "gspo_avg_0.2_0.27"] #"grpo", "gspo", "gspo_group_norm", 
-        show_plpo = ["grpo-hybrid", "plpo", "gspo", "grpo"]
+        show_plpo = ["grpo-hybrid", "plpo", "plpo-token", "gspo", "grpo"] # , "grpo"
         # show_plpo_cons = ["grpo_0.2_0.2", "grpo-loo_0.2_0.28", "grpo-loo+direct", "grpo-loo+cons", "plpo_0.2_0.28", "plpo+cons(proofaug+)"]
-        # show_plpo_cons = ["base", "base+cons", "plpo", "plpo+cons(proofaug+)"]
-        show_plpo_cons = ["grpo-hybrid", "plpo", "proofaug+"]
+        # show_plpo_cons = ["base", "base+cons", "plpo_legacy", "plpo_legacy+cons(proofaug+)"]
+        show_plpo_cons = ["grpo-hybrid", "plpo", "proofaug+"] # , "grpo-hybrid+cons"
         show_plmo = ["ppo_0.2_0.28",  "plpo", "plmo_sum_0.2_0.28", "plpo-token_sum_0.2_0.28", "plpo-token_single_0.2_0.28"] # "ppo_wo_rc", # "plmo w/o rc", "plmo_single_0.2_0.28", "plmo_avg_0.1_0.12", "plmo_sum_0.2_0.28",
         # show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"] 
-        # show_minif2f = ["base", "base+cons", "plpo","plpo+cons(proofaug+)"] # limitation part
-        show_minif2f = ["grpo-hybrid", "plpo", "gspo"]
-        show_entropy =  ["grpo-hybrid", "grpo-hybrid+cons", "plpo", "plpo+cons(proofaug+)"]
+        # show_minif2f = ["base", "base+cons", "plpo_legacy","plpo_legacy+cons(proofaug+)"] # limitation part
+        show_minif2f = ["proofaug+", "plpo", "grpo-hybrid"]
+        show_entropy =  ["grpo-hybrid", "grpo-hybrid+cons", "plpo", "proofaug+"]
         # , "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"        
 
         # generate_training_curves_plot(
@@ -149,44 +182,44 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
             max_step=80
         )
         generate_show_entropy_plot(
-            log_fp, output_root, decouple_osppo, 'decouple_osppo',
-            max_step=200
+            log_fp, output_root, decouple_plpo, 'decouple_plpo',
+            max_step=350
         )
         generate_show_entropy_plot(
             log_fp, output_root, decouple, 'decouple',
             max_step=196
         )
-        generate_show_entropy_plot(
+        generate_training_curves_plot(
             log_fp, output_root, show_plpo, 'show_plpo',
-            max_step=298
+            max_step=296
         )
         generate_show_entropy_plot(
             log_fp, output_root, show_plpo_cons, 'show_plpo_cons',
-            max_step=290 # to be 325 or 300 best for paper? 310 is good
+            max_step=376 # to be 325 or 300 best for paper? 310 is good
         )
-        generate_show_entropy_plot(
-            log_fp, output_root, show_plmo, 'show_plmo',
-            max_step=300
-        )
+        # generate_show_entropy_plot(
+        #     log_fp, output_root, show_plmo, 'show_plmo',
+        #     max_step=300
+        # )
         # generate_training_curves_plot(
         #     log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
         #     max_step=400
         # )
         # Generate show_entropy plot
-        generate_show_entropy_plot(
-            log_fp, output_root, show_entropy, 'show_entropy',
-            max_step=400
-        )
+        # generate_show_entropy_plot(
+        #     log_fp, output_root, show_entropy, 'show_entropy',
+        #     max_step=400
+        # )
         
         # Generate show_minif2f plot
         generate_training_curves_plot(
             log_fp, output_root, show_minif2f, 'show_minif2f',
-            max_step=300,
+            max_step=376,
             dataset_filter='minif2f_test'
         )
 
 
-def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_filename, max_step=300, plot_title=None, dataset_filter=None):
+def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_filename, max_step=300, plot_title=None, dataset_filter=None, draw_other_k=False):
     """
     Generic function to generate training curves plot for given labels
     
@@ -237,8 +270,8 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
         model_path_pattern = label2name[label]
         
         # Find matching entries for both T0.6 and T0.1
-        label_data_t06 = []
-        label_data_t01 = []
+        label_data_n1 = []
+        label_data_n8 = []
         
         for item in filtered_data:
             model_path = item.get('model', '')
@@ -263,31 +296,32 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
                 
                 if seed_match is not None:
                     accuracy = float(item.get('accuracy', 0))
+                    passk = item['n']
                     data_entry = {
                         'step': step,
                         'seed': seed_match,
                         'accuracy': accuracy,
                         'model': model_path,
-                        'output_dir': output_dir
+                        'output_dir': output_dir,
+                        'n': passk
                     }
                     
                     # Check temperature parameter in output_dir
-                    if '-T0.1-' in output_dir:
-                        pass # no longer needed
-                        # label_data_t01.append(data_entry)
-                    elif '-T0.6-' in output_dir:
-                        label_data_t06.append(data_entry)
+                    if passk == 1:
+                        label_data_n1.append(data_entry)
+                    elif passk == 8:
+                        # Default to n8 if no temperature specified
+                        if draw_other_k:
+                            label_data_n8.append(data_entry)
                     else:
-                        # Default to T0.6 if no temperature specified
-                        label_data_t06.append(data_entry)
-        
-        # Add T0.6 data with original label
-        if label_data_t06:
-            results[label] = label_data_t06
+                        raise ValueError(f"Invalid passk: {passk}")
+        # Add n1 data with original label
+        if label_data_n1:
+            results[label] = label_data_n1
             
-        # Add T0.1 data with modified label
-        if label_data_t01:
-            results[f"{label}+T0.1"] = label_data_t01
+        # Add n8 data with modified label
+        if label_data_n8:
+            results[f"{label}+n8"] = label_data_n8
     
     # Calculate mean and std for each label and step
     plot_data = {}
@@ -320,7 +354,9 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
     # Create the plot
     plt.figure(figsize=(12, 8))
     
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan']
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 
+              'magenta', 'teal', 'navy', 'lime', 'maroon', 'gold', 'coral', 'indigo', 'turquoise', 'crimson',
+              'darkgreen', 'darkviolet', 'deepskyblue', 'chocolate', 'darkgoldenrod', 'darkslategray']
     
     for i, (label, data) in enumerate(plot_data.items()):
         steps = data['steps']
@@ -340,9 +376,10 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
                         alpha=0.2, color=color)
     
     plt.xlabel('Iteration')
-    plt.ylabel('Pass@1(%)')
+    plt.ylabel('Pass Rate(%)')
     # if plot_title:
     #     plt.title(plot_title)
+    plt.ylim(bottom=19)  # Set minimum y-axis value to 18
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
@@ -428,7 +465,9 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     fig, ax1 = plt.subplots(figsize=(12, 8))
     ax2 = ax1.twinx()  # Create second y-axis
     
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray']
+    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan',
+              'magenta', 'teal', 'navy', 'lime', 'maroon', 'gold', 'coral', 'indigo', 'turquoise', 'crimson',
+              'darkgreen', 'darkviolet', 'deepskyblue', 'chocolate', 'darkgoldenrod', 'darkslategray']
     
     # Plot accuracy data on left axis (keep as points with error bars)
     for i, (label, data) in enumerate(accuracy_data.items()):
@@ -464,8 +503,12 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     
     # Set labels and formatting
     ax1.set_xlabel('Iteration')
-    ax1.set_ylabel('Pass@1(%)', color='black')
+    ax1.set_ylabel('Pass Rate(%)', color='black')
     ax2.set_ylabel('Entropy', color='black')
+    
+    # Set minimum y-axis value for pass rate to 18
+    ax1.set_ylim(bottom=19)
+    ax2.set_ylim(top=0.3)
     
     # Set colors for y-axis labels
     ax1.tick_params(axis='y', labelcolor='black')
@@ -473,7 +516,7 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     
     # Use only accuracy lines for legend (entropy lines have no labels)
     lines1, labels1 = ax1.get_legend_handles_labels()
-    ax1.legend(lines1, labels1, loc='best')
+    ax1.legend(lines1, labels1, loc='right', bbox_to_anchor=(1,0.35))
     
     ax1.grid(True, alpha=0.3)
     # plt.title('Training Curves with Entropy Loss')

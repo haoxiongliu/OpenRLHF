@@ -79,7 +79,7 @@ class PolicyLoss(nn.Module):
 
     def __init__(self, clip_eps_low: float = 0.2, clip_eps_high: float = 0.2, 
                  token_level_loss: bool = True, plmo: bool = False, ratio_type: str = "single", 
-                 policy_loss_type: str = "ppo") -> None:
+                 policy_loss_type: str = "ppo", ratio_compen_factor: float = 1) -> None:
         super().__init__()
         self.clip_eps_low = clip_eps_low
         self.clip_eps_high = clip_eps_high
@@ -87,9 +87,10 @@ class PolicyLoss(nn.Module):
         self.plmo = plmo
         self.ratio_type = ratio_type
         self.policy_loss_type = policy_loss_type
+        self.ratio_compen_factor = ratio_compen_factor
 
-        if self.policy_loss_type == "plpo":
-            self.policy_loss_type = "osppo"
+        if self.policy_loss_type == "osppo":
+            self.policy_loss_type = "plpo"
 
     def forward(
         self,
@@ -97,6 +98,8 @@ class PolicyLoss(nn.Module):
         old_log_probs: torch.Tensor,
         advantages: torch.Tensor,
         action_mask: Optional[torch.Tensor] = None,
+        rewards: Optional[torch.Tensor] = None,
+        orig_rewards: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         if self.policy_loss_type == "plmo" or self.plmo:
             # PLMO: change gradient objective from π(a_t|s_t) to π(s_t|x)
@@ -123,24 +126,33 @@ class PolicyLoss(nn.Module):
                 else masked_mean(loss, action_mask, dim=-1).mean()
             )
             clip_ratio = masked_mean(to_clip.float(), action_mask, dim=None)
-        elif self.policy_loss_type in ["gspo", "osppo"]:
-            log_ratio = log_probs - old_log_probs
-
+        elif self.policy_loss_type in ["gspo", "plpo"]:
+            # breakpoint()
+            # log_ratio = log_probs - old_log_probs
             # Create mask for only the last valid token in each sequence
             # Find the last valid token position for each sequence
-            seq_lengths = action_mask.sum(dim=-1)  # (B,)
-            last_token_mask = torch.zeros_like(action_mask)
+            action_lens = action_mask.sum(dim=-1)  # (B)
+            last_token_mask = torch.zeros_like(action_mask) # (B, S)
             batch_indices = torch.arange(action_mask.size(0), device=action_mask.device)
-            last_token_positions = seq_lengths - 1  # Convert to 0-indexed
+            last_token_positions = action_lens - 1  # Convert to 0-indexed
             last_token_mask[batch_indices, last_token_positions] = 1.0
             
-            # if self.policy_loss_type == "osppo":  # OSPPO = PLMO + GSPO
-            log_diff_sums = torch.sum(log_ratio, dim=-1)
+            # PLPO = PLMO + sequence
+            log_probs_mean = masked_mean(log_probs, action_mask, dim=-1)
+            old_log_probs_mean = masked_mean(old_log_probs, action_mask, dim=-1)
+            if self.ratio_compen_factor != 1.0:
+                diff_mask = rewards != orig_rewards #(B)
+                diff_mask = diff_mask * (self.ratio_compen_factor - 1.0)                
+                old_log_probs_mean = old_log_probs_mean * (diff_mask + 1.0)
+            log_diff_means = log_probs_mean - old_log_probs_mean
+            # log_diff_means = masked_mean(log_ratio, action_mask, dim=-1)
+            # log_diff_sums = log_diff_means*action_lens
+            # log_diff_sums = torch.sum(log_ratio, dim=-1)
             
-            if self.ratio_type == "sum" or self.policy_loss_type == "osppo":
-                seq_ratio = log_diff_sums.exp()
+            if self.ratio_type == "sum" or self.policy_loss_type == "plpo":
+                seq_ratio = (log_diff_means*action_lens).exp() # (B)
             if self.ratio_type == "average" or self.policy_loss_type == "gspo":
-                seq_avg_ratio = masked_mean(log_ratio, action_mask, dim=-1).exp()
+                seq_avg_ratio = log_diff_means.exp()
             seq_advantages = (advantages*last_token_mask).sum(dim=-1)
             if self.ratio_type == "sum":    # (B,)
                 # Use cumulative log probs for ratio calculation
@@ -155,7 +167,7 @@ class PolicyLoss(nn.Module):
             high_ratio = (indicator > 1 + self.clip_eps_high)
             low_ratio = (indicator < 1 - self.clip_eps_low)
             to_clip = high_ratio * (seq_advantages > 0) | low_ratio * (seq_advantages < 0) # bool
-            if self.policy_loss_type == "osppo":
+            if self.policy_loss_type == "plpo":
                 loss = -seq_ratio * seq_advantages
             elif self.policy_loss_type == "gspo":
                 loss = -seq_avg_ratio * seq_advantages
