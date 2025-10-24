@@ -141,7 +141,8 @@ class PolicyLoss(nn.Module):
             log_probs_mean = masked_mean(log_probs, action_mask, dim=-1)
             old_log_probs_mean = masked_mean(old_log_probs, action_mask, dim=-1)
             if self.ratio_compen_factor != 1.0:
-                diff_mask = rewards != orig_rewards #(B)
+                # diff_mask = rewards != orig_rewards #(B)
+                diff_mask = ~torch.isclose(rewards, orig_rewards, rtol=1e-5, atol=1e-8)
                 diff_mask = diff_mask * (self.ratio_compen_factor - 1.0)                
                 old_log_probs_mean = old_log_probs_mean * (diff_mask + 1.0)
             log_diff_means = log_probs_mean - old_log_probs_mean
