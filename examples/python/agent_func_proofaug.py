@@ -128,8 +128,9 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         pa_depth = ret_obj.pa_depths[0]
         verify_time = ret_obj.verify_times[0]
         verify_time = time_reward_threshold if verify_time is None else verify_time
+        original_observation = observation + action  # original observation without proofaug substitution
 
-        if reward > 0.0 and code_only:
+        if reward > 0.0 and code_only:  # already legacy code, we don't use it anymore
             action = f"```lean4\n{header}{body}\n```"
 
         # substitution related. in lean_reward_server we only handle "raw" reward adjustment.
@@ -215,7 +216,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         reward = 0.0
         orig_reward = 0.0
         pa_reward = 0.0
-        next_observation = observation + action
+        next_observation = original_observation
 
     return {
         "rewards": reward,  # Rewards for advantage calculation
@@ -226,4 +227,5 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         "extra_logs": {
             "pa_rewards": pa_reward,
         },  # Additional logging information
+        "original_observation": original_observation,  # Original observation without proofaug substitution
     }
