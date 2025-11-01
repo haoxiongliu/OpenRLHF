@@ -161,10 +161,6 @@ class LLMRayActorAsync(BaseLLMRayActor):
                     done = result["done"]
                     extra_logs = result.get("extra_logs", {})
 
-                    orig_reward = extra_logs.get("orig_rewards", 0.0) # require float
-                    if isinstance(orig_reward, torch.Tensor):
-                        orig_reward = orig_reward.item()
-
                     # consider structured output from the environment
                     action_end = len(observation)
                     action_ranges.append((action_start, action_end))
