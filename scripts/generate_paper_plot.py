@@ -89,6 +89,7 @@ label2name = {
     "plpo+cons_trs8": "1004-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28-trs8",
     "plpo+direct": "1018-1-plpo-sum-rloo-mix6-remove-cl0.2-0.28",
     "plpo+only_fail": "1019-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28",
+    "plpo+only_fail_new": "1027-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28",
 }
 
 def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=False):
@@ -107,7 +108,7 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         show_plpo = ["plpo_legacy_avg_0.1_0.12", "plpo_legacy_sum_0.2_0.28", "grpo-hybrid", "plpo_legacy+cons", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.03_0.03", "plpo", "plpo+cons", "plpo_trs8"]
         show_plpo_token = ["grpo-hybrid", "plpo", "plpo-token_sum_0.2_0.28", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
         decouple_plpo = ["plpo", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.2_0.27", "plpo_avg_0.03_0.03"] 
-        show_plpo_cons = ["plpo", "plpo+cons", "grpo-hybrid+cons", "grpo-hybrid", "plpo+direct", "plpo+only_fail", "plpo+cons_rcf2"]#  "grpo-hybrid + direct", "grpo-hybrid+cons", "grpo-hybrid",  "plpo_legacy", "plpo_legacy+cons", "plpo+cons_trs8", "plpo_trs8", "plpo+cons_rcf2"
+        show_plpo_cons = ["plpo", "plpo+cons", "grpo-hybrid+cons", "grpo-hybrid", "plpo+direct", "plpo+only_fail", "plpo+only_fail_new", "plpo+cons_rcf2"]#  "grpo-hybrid + direct", "grpo-hybrid+cons", "grpo-hybrid",  "plpo_legacy", "plpo_legacy+cons", "plpo+cons_trs8", "plpo_trs8", "plpo+cons_rcf2"
         show_aggr_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+aggr", "ppo_0.5_1.0+aggr", "ppo_0.2_0.28+cons"] # "ppo_0.5_1.0",
         show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] 
         show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] # limitation part
