@@ -108,10 +108,11 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
     depth_reward_rate = proofaug_config.get("depth_reward_rate", 0.25)
 
     timeout_flag = False
+    original_observation = observation + action  # Define early to avoid NameError in timeout case
     try:
-        ret_obj = await call_remote_reward_model(observation+action, observation, label, **kwargs)
+        ret_obj = await call_remote_reward_model(original_observation, observation, label, **kwargs)
     except asyncio.TimeoutError:
-        logger.info(f"TimeoutError: {observation+action=}")
+        logger.info(f"TimeoutError: {original_observation=}")
         timeout_flag = True
 
     if not timeout_flag:
@@ -128,7 +129,7 @@ async def step(observation: str, action: str, label: str, **kwargs) -> dict[str,
         pa_depth = ret_obj.pa_depths[0]
         verify_time = ret_obj.verify_times[0]
         verify_time = time_reward_threshold if verify_time is None else verify_time
-        original_observation = observation + action  # original observation without proofaug substitution
+        # original_observation already defined at the start of the function
 
         if reward > 0.0 and code_only:  # already legacy code, we don't use it anymore
             action = f"```lean4\n{header}{body}\n```"

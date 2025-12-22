@@ -81,6 +81,7 @@ label2name = {
     "plpo_avg_0.05_0.06": "0926-1-plpo-average-rloo-record_pa-mix6-cl0.05-0.06",
     "plpo_avg_0.03_0.03": "0927-1-plpo-average-rloo-record_pa-mix6-cl0.03-0.03",
     "plpo": "0928-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28",
+    "plpo_new": "1105-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28",
     "plpo_sum_0.2_0.28": "0928-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28",
     "plpo_trs8": "1005-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28-trs8",
     "plpo+cons": "1001-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28",
@@ -90,6 +91,13 @@ label2name = {
     "plpo+direct": "1018-1-plpo-sum-rloo-mix6-remove-cl0.2-0.28",
     "plpo+only_fail": "1019-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28",
     "plpo+only_fail_new": "1027-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28",
+    "plpo+only_fail_new2": "1102-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28",
+    "plpo+only_fail_rcf2": "1104-1-plpo-sum-rloo-mix6-remove-cons-cl0.2-0.28-rcf2.0",
+
+    "plpo-05b": "1130-1-plpo-sum-rloo-record_pa-mix6-cl0.2-0.28",
+    "grpo-hybrid-05b": "1201-1-ppo-sum-rloo-record_pa-mix6-cl0.2-0.28",
+    "proofaug+-05b-legacy": "1201-2-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28",
+    "proofaug+-05b": "1202-1-plpo-sum-rloo-mix6-max2depth-cons-cl0.2-0.28-05b-seed4"
 }
 
 def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=False):
@@ -105,10 +113,11 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         output_root = "results/lookup_plot"
         os.makedirs(output_root, exist_ok=True)
         preliminary = ["ppo", "ppo+direct", "gspo", "osppo_avg_0.2_0.27", "gspo_sum_0.2_0.28"]
-        show_plpo = ["plpo_legacy_avg_0.1_0.12", "plpo_legacy_sum_0.2_0.28", "grpo-hybrid", "plpo_legacy+cons", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.03_0.03", "plpo", "plpo+cons", "plpo_trs8"]
+        show_plpo = ["grpo-hybrid", "plpo", "plpo+cons", "plpo_new"] # "plpo_legacy+cons", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.03_0.03",
+        show_plpo_05 = ["plpo-05b", "grpo-hybrid-05b", "proofaug+-05b"]
         show_plpo_token = ["grpo-hybrid", "plpo", "plpo-token_sum_0.2_0.28", "gspo_sum_0.2_0.28"] # "ppo_wo_rc",
         decouple_plpo = ["plpo", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.2_0.27", "plpo_avg_0.03_0.03"] 
-        show_plpo_cons = ["plpo", "plpo+cons", "grpo-hybrid+cons", "grpo-hybrid", "plpo+direct", "plpo+only_fail", "plpo+only_fail_new", "plpo+cons_rcf2"]#  "grpo-hybrid + direct", "grpo-hybrid+cons", "grpo-hybrid",  "plpo_legacy", "plpo_legacy+cons", "plpo+cons_trs8", "plpo_trs8", "plpo+cons_rcf2"
+        show_plpo_cons = ["plpo", "plpo+cons", "grpo-hybrid+cons", "grpo-hybrid", "plpo+direct", "plpo+only_fail", "plpo+only_fail_new", "plpo+only_fail_new2", "plpo+only_fail_rcf2"]#  "grpo-hybrid + direct", "grpo-hybrid+cons", "grpo-hybrid",  "plpo_legacy", "plpo_legacy+cons", "plpo+cons_trs8", "plpo_trs8", "plpo+cons_rcf2"
         show_aggr_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+aggr", "ppo_0.5_1.0+aggr", "ppo_0.2_0.28+cons"] # "ppo_0.5_1.0",
         show_plmo_cons = ["ppo_0.2_0.28", "ppo_0.2_0.28+direct", "ppo_0.2_0.28+cons", "plmo_sum_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "plmo_single_0.2_0.28+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] 
         show_minif2f = ["ppo", "ppo+cons", "plmo_single_0.2_0.28+cons", "plmo_avg_0.1_0.12+cons", "osppo_sum_0.2_0.28", "osppo_sum_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt", "gspo_sum_0.2_0.28"] # limitation part
@@ -117,9 +126,14 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         # "plmo_avg_0.1_0.12+cons", "plmo_sum_0.2_0.28+cons", 这些再做个ablation 就行 
         # "plmo_single_0.2_0.28+cons", "plmo_sum_0.4_0.6+cons", , "plmo_avg_0.05_0.06+cons" seed  原因逃过一劫？ "osppo w/o rc", "plmo_avg_0.03_0.03+cons", 
 
-        generate_training_curves_plot(
+        generate_show_entropy_plot(
             log_fp, output_root, preliminary, 'preliminary',
-            max_step=100
+            max_step=100, show_entropy_plot=False
+        )
+        generate_show_entropy_plot(
+            log_fp, output_root, show_plpo_05, 'show_plpo_05',
+            max_step=600, show_entropy_plot=False,
+            min_accuracy=15, max_entropy=0.28
         )
         generate_show_entropy_plot(
             log_fp, output_root, show_plpo, 'show_plpo',
@@ -157,6 +171,7 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
     else:
         os.makedirs(output_root, exist_ok=True)
         preliminary = ["grpo-hybrid", "grpo-hybrid + direct"]
+        show_plpo_05 = ["plpo-05b", "grpo-hybrid-05b", "proofaug+-05b"]
         # show_plpo_token = ["grpo-hybrid", "plpo", "plpo-token_sum_0.2_0.28"] # "ppo_wo_rc", , "gspo_sum_0.2_0.28"
         decouple_plpo = ["plpo_sum_0.2_0.28", "plpo_avg_0.1_0.12", "plpo_avg_0.05_0.06", "plpo_avg_0.2_0.27", "plpo_avg_0.03_0.03"] 
         decouple = ["gspo_sum_0.2_0.28", "gspo_avg_0.2_0.27"] #"grpo", "gspo", "gspo_group_norm", 
@@ -170,17 +185,15 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
         show_minif2f = ["proofaug+", "plpo", "grpo-hybrid"]
         show_entropy =  ["grpo-hybrid", "grpo-hybrid+cons", "plpo", "proofaug+"]
         # , "osppo_sum_pab_0.2_0.28+cons", "osppo_sum_pab_0.2_0.28+cons+nt"        
-
-        # generate_training_curves_plot(
-        #     log_fp=log_fp,
-        #     output_root=output_root,
-        #     labels_to_show=preliminary,
-        #     output_filename='preliminary',
-        #     max_step=50
-        # )
         generate_show_entropy_plot(
-            log_fp, output_root, preliminary, 'preliminary',
+            log_fp, output_root, preliminary, 'preliminary', 
+            max_entropy=0.2, legend_loc='upper left',
             max_step=80
+        )
+        generate_show_entropy_plot(
+            log_fp, output_root, show_plpo_05, 'show_plpo_05',
+            max_step=100, show_entropy_plot=False,
+            min_accuracy=15, max_entropy=0.28
         )
         generate_show_entropy_plot(
             log_fp, output_root, decouple_plpo, 'decouple_plpo',
@@ -190,50 +203,89 @@ def main(log_fp="results/summary.log", output_root="results/paper_plot", paper=F
             log_fp, output_root, decouple, 'decouple',
             max_step=196
         )
-        generate_training_curves_plot(
+        generate_show_entropy_plot(
             log_fp, output_root, show_plpo, 'show_plpo',
-            max_step=296
+            max_step=296, show_entropy_plot=False
         )
         generate_show_entropy_plot(
             log_fp, output_root, show_plpo_cons, 'show_plpo_cons',
-            max_step=376 # to be 325 or 300 best for paper? 310 is good
+            legend_offset_x=0.05,
+            max_step=376 # 376 previousto be 325 or 300 best for paper? 310 is good
         )
-        # generate_show_entropy_plot(
-        #     log_fp, output_root, show_plmo, 'show_plmo',
-        #     max_step=300
-        # )
-        # generate_training_curves_plot(
-        #     log_fp, output_root, show_plmo_cons, 'show_plmo_cons',
-        #     max_step=400
-        # )
-        # Generate show_entropy plot
-        # generate_show_entropy_plot(
-        #     log_fp, output_root, show_entropy, 'show_entropy',
-        #     max_step=400
-        # )
-        
         # Generate show_minif2f plot
-        generate_training_curves_plot(
+        generate_show_entropy_plot(
             log_fp, output_root, show_minif2f, 'show_minif2f',
             max_step=376,
-            dataset_filter='minif2f_test'
+            dataset_filter='minif2f_test',
+            show_entropy_plot=False
         )
 
 
-def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_filename, max_step=300, plot_title=None, dataset_filter=None, draw_other_k=False):
-    """
-    Generic function to generate training curves plot for given labels
+def load_entropy_data(tensorboard_dir, max_step=72):
+    """Load entropy loss data from tensorboard logs, merging data from multiple tfevents files"""
+    entropy_data = {}
+    
+    # Find all event files in the directory
+    event_files = glob.glob(os.path.join(tensorboard_dir, "events.out.tfevents.*"))
+    
+    if not event_files:
+        return entropy_data
+    
+    # Sort event files by modification time to process in chronological order
+    event_files.sort(key=os.path.getmtime)
+    
+    # Process all event files and merge the data
+    processed_files = 0
+    for event_file in event_files:
+        try:
+            ea = event_accumulator.EventAccumulator(event_file)
+            ea.Reload()
+            
+            # Check if entropy_loss exists
+            if "train/entropy_loss" in ea.Tags()["scalars"]:
+                scalars = ea.Scalars("train/entropy_loss")
+                file_data_count = 0
+                
+                for scalar in scalars:
+                    step = scalar.step
+                    if step <= max_step:
+                        # For overlapping steps, use the data from the later file (overwrite)
+                        entropy_data[step] = scalar.value
+                        file_data_count += 1
+                
+                if file_data_count > 0:
+                    processed_files += 1
+                        
+        except Exception as e:
+            print(f"Error loading entropy data from {event_file}: {e}")
+            continue  # Continue processing other files even if one fails
+    
+    if processed_files > 1:
+        print(f"Merged entropy data from {processed_files} tensorboard files in {tensorboard_dir}")
+    
+    return entropy_data
+
+
+def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filename, max_step=72, legend_loc='upper left', legend_offset_x=0.0, legend_offset_y=0.0, max_entropy=0.2, min_accuracy=19.0, plot_title=None, dataset_filter=None, draw_other_k=False, show_entropy_plot=True):
+    """Generate plot for show_entropy comparison with dual y-axis for entropy, using continuous lines from tensorboard data
+    Can also generate training curves only when show_entropy_plot=False
     
     Args:
         log_fp: Path to the log file
         output_root: Directory to save the plot
-        labels_to_show: List of labels to include in the plot
+        show_entropy: List of labels to include in the plot
         output_filename: Name of the output PNG file (without extension)
         max_step: Maximum training step to include
+        legend_loc: Location of the legend (e.g., 'right', 'left', 'upper right', etc.)
+        legend_offset_x: X offset for legend position relative to standard location
+        legend_offset_y: Y offset for legend position relative to standard location
+        max_entropy: Maximum entropy value to include
+        min_accuracy: Minimum accuracy value to include
         plot_title: Optional title for the plot
         dataset_filter: Optional filter for dataset type (e.g., 'minif2f_test', 'pset_test')
+        draw_other_k: Whether to draw other k values (e.g., n8)
+        show_entropy_plot: If True, show entropy on dual y-axis; If False, only show training curves
     """
-
     
     # Read and parse data (Python dict format, not JSON)
     data = []
@@ -247,7 +299,6 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
                 # Skip malformed lines
                 continue
 
-    
     # Filter data based on dataset_filter parameter
     filtered_data = []
     for item in data:
@@ -264,8 +315,8 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
     # Group data by label
     results = {}
     
-    # Process each label in labels_to_show
-    labels_to_process = [label for label in labels_to_show if label in label2name and label2name[label] is not None]
+    # Process each label in show_entropy
+    labels_to_process = [label for label in show_entropy if label in label2name and label2name[label] is not None]
     
     for label in labels_to_process:
         model_path_pattern = label2name[label]
@@ -325,7 +376,7 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
             results[f"{label}+n8"] = label_data_n8
     
     # Calculate mean and std for each label and step
-    plot_data = {}
+    accuracy_data = {}
     for label, data_list in results.items():
         # Group by step
         step_groups = {}
@@ -345,112 +396,56 @@ def generate_training_curves_plot(log_fp, output_root, labels_to_show, output_fi
             means.append(np.mean(accuracies))
             stds.append(np.std(accuracies) if len(accuracies) > 1 else 0)
         
-        plot_data[label] = {
+        accuracy_data[label] = {
             'steps': steps,
             'means': means,
             'stds': stds,
             'n_points': len(data_list)
         }
     
-    # Create the plot
-    plt.figure(figsize=(12, 8))
-    
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 
-              'magenta', 'teal', 'navy', 'lime', 'maroon', 'gold', 'coral', 'indigo', 'turquoise', 'crimson',
-              'darkgreen', 'darkviolet', 'deepskyblue', 'chocolate', 'darkgoldenrod', 'darkslategray']
-    
-    for i, (label, data) in enumerate(plot_data.items()):
-        steps = data['steps']
-        means = data['means']
-        stds = data['stds']
+    # If show_entropy_plot is False, only generate training curves plot
+    if not show_entropy_plot:
+        # Create the plot
+        plt.figure(figsize=(12, 8))
         
-        color = colors[i % len(colors)]
+        colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive', 'cyan', 
+                  'magenta', 'teal', 'navy', 'lime', 'maroon', 'gold', 'coral', 'indigo', 'turquoise', 'crimson',
+                  'darkgreen', 'darkviolet', 'deepskyblue', 'chocolate', 'darkgoldenrod', 'darkslategray']
         
-        # Plot line without error bars
-        plt.plot(steps, means, marker='o', linewidth=2, markersize=6,
-                label=label, color=color)
-        
-        # Fill between for error background (lighter color)
-        means_array = np.array(means)
-        stds_array = np.array(stds)
-        plt.fill_between(steps, means_array - stds_array, means_array + stds_array, 
-                        alpha=0.2, color=color)
-    
-    plt.xlabel('Iteration')
-    plt.ylabel('Pass Rate(%)')
-    # if plot_title:
-    #     plt.title(plot_title)
-    plt.ylim(bottom=19)  # Set minimum y-axis value to 18
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    # Save the plot
-    output_path = os.path.join(output_root, f'{output_filename}.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"Training curves saved to: {output_path}")
-    
-    return plot_data
-
-
-def load_entropy_data(tensorboard_dir, max_step=72):
-    """Load entropy loss data from tensorboard logs, merging data from multiple tfevents files"""
-    entropy_data = {}
-    
-    # Find all event files in the directory
-    event_files = glob.glob(os.path.join(tensorboard_dir, "events.out.tfevents.*"))
-    
-    if not event_files:
-        return entropy_data
-    
-    # Sort event files by modification time to process in chronological order
-    event_files.sort(key=os.path.getmtime)
-    
-    # Process all event files and merge the data
-    processed_files = 0
-    for event_file in event_files:
-        try:
-            ea = event_accumulator.EventAccumulator(event_file)
-            ea.Reload()
+        for i, (label, data) in enumerate(accuracy_data.items()):
+            steps = data['steps']
+            means = data['means']
+            stds = data['stds']
             
-            # Check if entropy_loss exists
-            if "train/entropy_loss" in ea.Tags()["scalars"]:
-                scalars = ea.Scalars("train/entropy_loss")
-                file_data_count = 0
-                
-                for scalar in scalars:
-                    step = scalar.step
-                    if step <= max_step:
-                        # For overlapping steps, use the data from the later file (overwrite)
-                        entropy_data[step] = scalar.value
-                        file_data_count += 1
-                
-                if file_data_count > 0:
-                    processed_files += 1
-                        
-        except Exception as e:
-            print(f"Error loading entropy data from {event_file}: {e}")
-            continue  # Continue processing other files even if one fails
-    
-    if processed_files > 1:
-        print(f"Merged entropy data from {processed_files} tensorboard files in {tensorboard_dir}")
-    
-    return entropy_data
-
-
-def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filename,max_step=72):
-    """Generate plot for show_entropy comparison with dual y-axis for entropy, using continuous lines from tensorboard data"""
-    
-    # Get accuracy data using existing function
-    accuracy_data = generate_training_curves_plot(
-        log_fp=log_fp,
-        output_root=output_root,
-        labels_to_show=show_entropy,
-        output_filename='temp_entropy',  # temporary file
-        max_step=max_step
-    )
+            color = colors[i % len(colors)]
+            
+            # Plot line without error bars
+            plt.plot(steps, means, marker='o', linewidth=2, markersize=6,
+                    label=label, color=color)
+            
+            # Fill between for error background (lighter color)
+            means_array = np.array(means)
+            stds_array = np.array(stds)
+            plt.fill_between(steps, means_array - stds_array, means_array + stds_array, 
+                            alpha=0.2, color=color)
+        
+        plt.xlabel('Iteration')
+        plt.ylabel('Pass Rate(%)')
+        if plot_title:
+            plt.title(plot_title)
+        plt.ylim(bottom=min_accuracy)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save the plot
+        output_path = os.path.join(output_root, f'{output_filename}.png')
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Training curves saved to: {output_path}")
+        
+        return accuracy_data
     
     # Load entropy data for each label (including T0.1 variants from accuracy_data)
     entropy_data = {}
@@ -508,8 +503,8 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     ax2.set_ylabel('Entropy', color='black')
     
     # Set minimum y-axis value for pass rate to 18
-    ax1.set_ylim(bottom=19)
-    ax2.set_ylim(top=0.3)
+    ax1.set_ylim(bottom=min_accuracy)
+    ax2.set_ylim(top=max_entropy)
     
     # Set colors for y-axis labels
     ax1.tick_params(axis='y', labelcolor='black')
@@ -517,7 +512,31 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     
     # Use only accuracy lines for legend (entropy lines have no labels)
     lines1, labels1 = ax1.get_legend_handles_labels()
-    ax1.legend(lines1, labels1, loc='right', bbox_to_anchor=(1,0.35))
+    
+    # Map legend_loc to default bbox_to_anchor positions, then apply offsets
+    # bbox_to_anchor coordinates: (0,0)=bottom-left, (1,1)=top-right
+    default_positions = {
+        'best': (0.5, 0.5),
+        'upper right': (1.0, 1.0),
+        'upper left': (0.0, 1.0),
+        'lower left': (0.0, 0.0),
+        'lower right': (1.0, 0.0),
+        'right': (1.0, 0.35),  # Keep original default y position for backward compatibility
+        'center left': (0.0, 0.5),
+        'center right': (1.0, 0.5),
+        'lower center': (0.5, 0.0),
+        'upper center': (0.5, 1.0),
+        'center': (0.5, 0.5)
+    }
+    
+    # Get default position based on legend_loc
+    default_x, default_y = default_positions.get(legend_loc, (1.0, 0.35))
+    
+    # Apply offsets to default position
+    bbox_x = default_x + legend_offset_x
+    bbox_y = default_y + legend_offset_y
+    
+    ax1.legend(lines1, labels1, loc=legend_loc, bbox_to_anchor=(bbox_x, bbox_y))
     
     ax1.grid(True, alpha=0.3)
     # plt.title('Training Curves with Entropy Loss')
@@ -527,11 +546,6 @@ def generate_show_entropy_plot(log_fp, output_root, show_entropy, output_filenam
     output_path = os.path.join(output_root, f'{output_filename}.png')
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
-    
-    # Remove temporary file
-    temp_path = os.path.join(output_root, 'temp_entropy.png')
-    if os.path.exists(temp_path):
-        os.remove(temp_path)
     
     print(f"Entropy plot with dual axis saved to: {output_path}")
     

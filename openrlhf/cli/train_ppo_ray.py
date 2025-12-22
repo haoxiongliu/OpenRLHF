@@ -331,7 +331,7 @@ if __name__ == "__main__":
     parser.add_argument("--gamma", type=float, default=1, help="PPO GAE gamma")
     parser.add_argument("--plmo", action="store_true", default=False, help="use proximal language modeling optimzation implemented in this work")
     parser.add_argument("--ratio_type", type=str, default="sum", choices=["single", "sum", "average"], help="ratio type for PLMO and OSPPO")
-    parser.add_argument("--policy_loss_type", type=str, default="ppo", choices=["ppo", "plmo", "gspo", "osppo", "plpo"])
+    parser.add_argument("--policy_loss_type", type=str, default="ppo", choices=["ppo", "plmo", "gspo", "osppo", "plpo", "plpo-c"])
     parser.add_argument("--ratio_compen_factor", type=float, default=1, help="Ratio compensation factor for ProofAug+")
 
     parser.add_argument("--micro_train_batch_size", type=int, default=4, help="batch size per GPU")

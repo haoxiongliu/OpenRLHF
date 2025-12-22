@@ -22,6 +22,8 @@ class BufferItem:
     advantages: (1)
     attention_mask: (S)
     action_mask: (A)
+    rewards: (1) - reward for advantage calculation
+    orig_rewards: (1) - original reward for baseline estimation
 
     "A" is the number of actions.
     """
@@ -34,6 +36,8 @@ class BufferItem:
     advantages: torch.Tensor
     attention_mask: Optional[torch.LongTensor]
     action_mask: Optional[torch.BoolTensor]
+    rewards: Optional[torch.Tensor]
+    orig_rewards: Optional[torch.Tensor]
     info: Optional[dict]
 
 
@@ -78,16 +82,22 @@ def make_experience_batch(items: List[BufferItem], packing_samples=False) -> Exp
 
     # Get fields from BufferItem, excluding 'info'
     keys = tuple(field.name for field in fields(BufferItem) if field.name != "info")
+    
+    # Scalar fields that should be stacked directly without padding
+    scalar_fields = {'rewards', 'orig_rewards'}
 
     # Process main attributes
-    kwargs = {
-        key: (
-            zero_pad_sequences([getattr(item, key) for item in items], "right", stack=True)
-            if getattr(items[0], key) is not None
-            else None
-        )
-        for key in keys
-    }
+    kwargs = {}
+    for key in keys:
+        value = getattr(items[0], key)
+        if value is None:
+            kwargs[key] = None
+        elif key in scalar_fields:
+            # For scalar fields, stack directly and squeeze to get (B,) shape
+            kwargs[key] = torch.stack([getattr(item, key) for item in items], dim=0).squeeze(-1)
+        else:
+            # For sequence fields, use zero_pad_sequences
+            kwargs[key] = zero_pad_sequences([getattr(item, key) for item in items], "right", stack=True)
 
     # Process info dictionary
     kwargs["info"] = {}

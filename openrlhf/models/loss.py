@@ -126,7 +126,7 @@ class PolicyLoss(nn.Module):
                 else masked_mean(loss, action_mask, dim=-1).mean()
             )
             clip_ratio = masked_mean(to_clip.float(), action_mask, dim=None)
-        elif self.policy_loss_type in ["gspo", "plpo"]:
+        elif self.policy_loss_type in ["gspo", "plpo", "plpo-c"]:
             # breakpoint()
             # log_ratio = log_probs - old_log_probs
             # Create mask for only the last valid token in each sequence
@@ -140,28 +140,34 @@ class PolicyLoss(nn.Module):
             # PLPO = PLMO + sequence
             log_probs_mean = masked_mean(log_probs, action_mask, dim=-1)
             old_log_probs_mean = masked_mean(old_log_probs, action_mask, dim=-1)
+            # breakpoint()
             if self.ratio_compen_factor != 1.0:
                 # diff_mask = rewards != orig_rewards #(B)
                 diff_mask = ~torch.isclose(rewards, orig_rewards, rtol=1e-5, atol=1e-8)
-                diff_mask = diff_mask * (self.ratio_compen_factor - 1.0)                
-                old_log_probs_mean = old_log_probs_mean * (diff_mask + 1.0)
+                diff_mask = diff_mask * (self.ratio_compen_factor - 1.0) + 1.0
+                # diff_mask = diff_mask * (self.ratio_compen_factor - 1.0)
+                # old_log_probs_mean_importance =  old_log_probs_mean * (diff_mask + 1.0)    
+                old_log_probs_mean_importance =  old_log_probs_mean + torch.log(diff_mask)/action_lens         
+            else:
+                old_log_probs_mean_importance = old_log_probs_mean
             log_diff_means = log_probs_mean - old_log_probs_mean
+            log_diff_means_importance = log_probs_mean - old_log_probs_mean_importance
             # log_diff_means = masked_mean(log_ratio, action_mask, dim=-1)
             # log_diff_sums = log_diff_means*action_lens
             # log_diff_sums = torch.sum(log_ratio, dim=-1)
             
             if self.ratio_type == "sum" or self.policy_loss_type == "plpo":
-                seq_ratio = (log_diff_means*action_lens).exp() # (B)
+                seq_ratio = (log_diff_means_importance*action_lens).exp() # (B)
             if self.ratio_type == "average" or self.policy_loss_type == "gspo":
-                seq_avg_ratio = log_diff_means.exp()
+                seq_avg_ratio = log_diff_means_importance.exp()
             seq_advantages = (advantages*last_token_mask).sum(dim=-1)
-            if self.ratio_type == "sum":    # (B,)
+            if self.ratio_type == "sum":    # (B,), determines clip
                 # Use cumulative log probs for ratio calculation
-                indicator = seq_ratio
+                indicator = seq_ratio if self.ratio_compen_factor == 1.0 else (log_diff_means*action_lens).exp()
             elif self.ratio_type == "average":
                 # Average ratio - key difference from sum
                 # indicator = (log_diff_sums / seq_lengths).exp()
-                indicator = seq_avg_ratio
+                indicator = seq_avg_ratio if self.ratio_compen_factor == 1.0 else (log_diff_means).exp()
             else:
                 raise ValueError(f"Invalid ratio type: {self.ratio_type}")
             
@@ -172,6 +178,8 @@ class PolicyLoss(nn.Module):
                 loss = -seq_ratio * seq_advantages
             elif self.policy_loss_type == "gspo":
                 loss = -seq_avg_ratio * seq_advantages
+            elif self.policy_loss_type == "plpo-c":
+                loss = -seq_advantages
             loss = loss.detach()*to_clip.float() + loss*(~to_clip).float()
             loss = loss.mean()
             clip_ratio = to_clip.float().mean()
