@@ -28,6 +28,8 @@
 
 <span>[ English | <a href="README_zh.md">中文</a> | <a href="README_ja.md">日本語</a> ]</span>
 
+By Haoxiong Liu: This version of OpenRLHF is integrated with a Lean server for high-performance RL training for LLM provers.
+
 OpenRLHF is the first easy-to-use, high-performance open-source RLHF framework built on Ray, vLLM, ZeRO-3 and HuggingFace Transformers, designed to make RLHF training simple and accessible:
 
 - **Distributed Architecture with Ray**  
